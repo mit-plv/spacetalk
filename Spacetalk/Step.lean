@@ -1,62 +1,58 @@
 import Spacetalk.Stream
+import Spacetalk.Graph
 
 -- Source Lang
 namespace Step
 
-  ------------------ Syntax ------------------
+------------------ Types ------------------
 
-  inductive Prim
-    | bitVec : Nat → Prim
-  deriving DecidableEq
+inductive Ty
+  | bitVec : Nat → Ty
+deriving DecidableEq
 
-  @[reducible] def Prim.denote : Prim → Type
-    | bitVec w => BitVec w
+@[reducible]
+def Ty.denote : Ty → Type
+  | bitVec w => BitVec w
 
-  inductive Ty
-    | prim : Prim → Ty
-    | stream : Prim → Ty
-    | fn : Ty → Ty → Ty
-  deriving DecidableEq
+def Ty.default : (t : Ty) → t.denote
+  | bitVec _ => 0
 
-  infixr:25 " → " => Ty.fn
+instance : Denote Ty where
+  denote := Ty.denote
+  default := Ty.default
 
-  abbrev BitVecTy (w : Nat) := Ty.prim (Prim.bitVec w)
+abbrev BitVecTy (w : Nat) := Ty.bitVec w
+abbrev BoolTy := BitVecTy 1
 
-  @[reducible] def Ty.denote : Ty → Type
-    | prim p => p.denote
-    | stream p => Stream' p.denote
-    | fn α β => α.denote → β.denote
+------------------ Syntax ------------------
 
-  inductive BinaryOp : Prim → Prim → Prim → Type
-    | add : {w : Nat} → BinaryOp (.bitVec w) (.bitVec w) (.bitVec w)
-    | mul : {w : Nat} → BinaryOp (.bitVec w) (.bitVec w) (.bitVec w)
+inductive BinaryOp : Ty → Ty → Ty → Type
+  | add : {w : Nat} → BinaryOp (BitVecTy w) (BitVecTy w) (BitVecTy w)
+  | mul : {w : Nat} → BinaryOp (BitVecTy w) (BitVecTy w) (BitVecTy w)
 
-  inductive UnaryOp : Prim → Prim → Type
-    | addConst : {w : Nat} → BitVec w → UnaryOp (.bitVec w) (.bitVec w)
-    | mulConst : {w : Nat} → BitVec w → UnaryOp (.bitVec w) (.bitVec w)
+inductive UnaryOp : Ty → Ty → Type
+  | addConst : {w : Nat} → BitVec w → UnaryOp (BitVecTy w) (BitVecTy w)
+  | mulConst : {w : Nat} → BitVec w → UnaryOp (BitVecTy w) (BitVecTy w)
 
-  inductive Prog : Ty → Type
-    | zip : BinaryOp α β γ → Prog (.stream α → .stream β → .stream γ)
-    | map : UnaryOp α β → Prog (.stream α → .stream β)
-    | reduce : BinaryOp α β α → Nat → α.denote → Prog (.stream β → .stream α)
-    | comp : Prog (β → γ) → Prog (α → β) → Prog (α → γ)
-    | comp2 : Prog (γ → δ) → Prog (α → β → γ) → Prog (α → β → δ)
+inductive Prog : List Ty → Ty → Type
+  | const : (α : Ty) → Prog [α] α
+  | zip : BinaryOp α β γ → Prog aInp α → Prog bInp β → Prog (aInp ++ bInp) γ
+  | map : UnaryOp α β → Prog inp α → Prog inp β
+  | reduce : BinaryOp α β α → (len : Nat) → 0 < len → α.denote → Prog inp β → Prog inp α
 
-  ------------------ Semantics ------------------
+------------------ Semantics ------------------
+def BinaryOp.denote : BinaryOp α β γ → α.denote → β.denote → γ.denote
+  | BinaryOp.add => BitVec.add
+  | BinaryOp.mul => BitVec.mul
 
-  def BinaryOp.denote : BinaryOp α β γ → α.denote → β.denote → γ.denote
-    | BinaryOp.add => BitVec.add
-    | BinaryOp.mul => BitVec.mul
+def UnaryOp.denote : UnaryOp α β → α.denote → β.denote
+  | UnaryOp.addConst c => BitVec.add c
+  | UnaryOp.mulConst c => BitVec.mul c
 
-  def UnaryOp.denote : UnaryOp α β → α.denote → β.denote
-    | UnaryOp.addConst c => BitVec.add c
-    | UnaryOp.mulConst c => BitVec.mul c
-
-  def Prog.denote {α : Ty} : Prog α → α.denote
-    | Prog.zip op => Stream'.zip op.denote
-    | Prog.map op => Stream'.map op.denote
-    | Prog.reduce op n init => Stream'.reduce op.denote n init
-    | Prog.comp f g => f.denote ∘ g.denote
-    | Prog.comp2 f g => λ a b => f.denote (g.denote a b)
+def Prog.denote {inputs : List Ty} {α : Ty} : Prog inputs α → (DenoStreamsList inputs → DenoStreamsList [α])
+  | .const _ => λ ([a]ₕ) ↦ [a]ₕ
+  | .zip op as bs => λ inp ↦ let (aInp, bInp) := inp.split; [Stream'.zip op.denote (as.denote aInp).head (bs.denote bInp).head]ₕ
+  | .map op as => λ inp ↦ [Stream'.map op.denote (as.denote inp).head]ₕ
+  | .reduce op n _ init bs => λ inp ↦ [Stream'.reduce op.denote n init (bs.denote inp).head]ₕ
 
 end Step

@@ -1,3 +1,6 @@
+import Aesop
+import Mathlib.Data.List.Basic
+import Mathlib.Data.List.Infix
 
 inductive HList {α : Type v} (β : α → Type u) : List α → Type (max u v)
   | nil : HList β []
@@ -15,7 +18,20 @@ macro_rules
 inductive Member {α : Type u} : α → List α → Type u
   | head : Member a (a::as)
   | tail : Member a bs → Member a (b::bs)
-deriving DecidableEq
+deriving BEq, DecidableEq
+
+theorem Member.to_mem : Member a l → a ∈ l
+  | .head => List.mem_of_mem_head? rfl
+  | .tail i => List.mem_of_mem_tail i.to_mem
+
+def Member.append_left {l₁ : List α} {l₂ : List α} : Member a l₁ → Member a (l₁ ++ l₂)
+  | .head => .head
+  | .tail i' => .tail i'.append_left
+
+def Member.append_right {l₁ : List α} {l₂ : List α} (ia : Member a l₂) : Member a (l₁ ++ l₂) :=
+  match l₁ with
+  | [] => ia
+  | _::_ => .tail ia.append_right
 
 def List.replaceMember {α : Type u} {a : α} : (l : List α) → Member a l → α → List α
   | [], _, _ => []
@@ -32,7 +48,8 @@ namespace HList
     | []ₕ => 0
     | _ ::ₕ t => 1 + t.length
 
-  @[simp] def get : HList β is → Member i is → β i
+  @[simp]
+  def get : HList β is → Member i is → β i
     | a ::ₕ as, .head => a
     | _ ::ₕ as, .tail h => as.get h
 
@@ -40,7 +57,8 @@ namespace HList
     | h ::ₕ _, ⟨0, _⟩ => h
     | _ ::ₕ t, ⟨n + 1, _⟩ => t.getNth ⟨n, _⟩
 
-  def append : HList β is1 → HList β is2 → HList β (is1 ++ is2)
+  def append (hl₁ : HList β is1) (hl₂ : HList β is2) : HList β (is1 ++ is2) :=
+    match hl₁, hl₂ with
     | []ₕ, l => l
     | (h ::ₕ s), t => h ::ₕ s.append t
 
@@ -48,8 +66,6 @@ namespace HList
     | []ₕ, _, _ => []ₕ
     | _::ₕt, .head, x => x ::ₕ t
     | h::ₕt, .tail m, x => h ::ₕ t.replace m x
-
-  infixr:67 " ++ₕ " => HList.append
 
   def head : HList β (i::is) → β i
     | h ::ₕ _ => h
@@ -63,6 +79,8 @@ namespace HList
       | _::_ => let (l, r) := hl.tail.split; (hl.head ::ₕ l, r)
 
 end HList
+
+infixr:67 " ++ₕ " => HList.append
 
 -- Given a List α, a function f : α → β,
 -- return a HList with indices of type β and values of β-indexed type δ
