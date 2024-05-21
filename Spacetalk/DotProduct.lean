@@ -29,8 +29,8 @@ namespace Step
 end Step
 
 theorem step_dp_equiv : ∀n : Nat, (h_n : 0 < n) → (Step.dotProd n h_n).denote = dotProd n := by
+  intro n h_n
   simp [Step.dotProd, dotProd]
-
   sorry
 
 def sdfDP (n : Nat) (h_n : 0 < n) := (Step.dotProd n h_n).compile

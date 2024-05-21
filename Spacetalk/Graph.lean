@@ -12,16 +12,22 @@ class Denote (τ : Type) [DecidableEq τ] where
 /-- Lean denotation of a (List τ) where τ implements Denote -/
 abbrev DenoList {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := HList Denote.denote ts
 
-/-- Lean denotation of a steram of type τ where τ implements Denote -/
-abbrev DenoStream {τ : Type} [DecidableEq τ] [Denote τ] (t : τ) := Stream' (Denote.denote t)
-
 /-- Lean denotation of a list of sterams of type τ where τ implements Denote -/
-abbrev DenoStreamsList {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := HList DenoStream ts
+abbrev DenoStreamsList {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := HList Stream' (ts.map Denote.denote)
 
 /-- Lean denotation of a steram of list of type τ where τ implements Denote -/
 abbrev DenoListsStream {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := Stream' (DenoList ts)
 
-@[simp] def DenoStreamsList.pack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} (dsl : DenoStreamsList ts) : DenoListsStream ts :=
+def DenoStreamsList.split {τ : Type} [DecidableEq τ] [Denote τ] {as : List τ} {bs : List τ}
+  (dsl : DenoStreamsList (as ++ bs)) : DenoStreamsList as × DenoStreamsList bs :=
+  match as with
+  | [] => ([]ₕ, dsl)
+  | _::_ =>
+    let (l, r) := DenoStreamsList.split dsl.tail
+    (dsl.head ::ₕ l, r)
+
+@[simp]
+def DenoStreamsList.pack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} (dsl : DenoStreamsList ts) : DenoListsStream ts :=
   match ts with
     | [] => λ _ => []ₕ
     | h::t =>
@@ -32,7 +38,8 @@ abbrev DenoListsStream {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) :
             | _ ::ₕ rest => rest
         h_elem ::ₕ (pack tail_streams) n
 
-@[simp] def DenoListsStream.unpack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} (dls : DenoListsStream ts) : DenoStreamsList ts :=
+@[simp]
+def DenoListsStream.unpack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} (dls : DenoListsStream ts) : DenoStreamsList ts :=
   match ts with
     | [] => []ₕ
     | h::t =>
@@ -44,7 +51,13 @@ abbrev DenoListsStream {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) :
 
 theorem DenoStreamsList_pack_unpack_eq {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} {dsl : DenoStreamsList ts}
   : dsl.pack.unpack = dsl := by
-  induction dsl <;> simp; assumption
+  induction ts with
+  | nil =>
+    simp [DenoStreamsList] at dsl
+    simp
+    cases dsl
+    · rfl
+  | cons h t ih => aesop
 
 theorem DenoListsStream_unpack_pack_eq {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} {dls : DenoListsStream ts}
   : dls.unpack.pack = dls := by
