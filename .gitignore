@@ -1,5 +1,5 @@
 /build
 /lakefile.olean
-/lake-packages/*
+/lake-packages/
 .lake
 lake-manifest.json
