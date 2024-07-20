@@ -14,30 +14,38 @@ theorem bv_eq : Denote.denote BV32 = BitVec 32 := by simp [Denote.denote]
 def dotProd (n : Nat) (inps : Inps) : Outs :=
   let a := inps.get .head
   let b := inps.get (.tail .head)
-  Stream'.reduce (bv_eq ▸ · + ·) n (bv_eq ▸ 0) (Stream'.zip (bv_eq ▸ · * ·) a b) ::ₕ .nil
+  Stream'.reduce BitVec.add n (bv_eq ▸ 0) (Stream'.zip BitVec.mul a b) ::ₕ .nil
 
-def sa : Stream' (BitVec 32) := λ n => ⟨n % (2 ^ 32), by apply Nat.mod_lt; simp⟩
-
-theorem Nat.sub_one_succ {n : Nat} : 0 < n → n - 1 + 1 = n := by
-  intro h
-  rw [Nat.sub_add_cancel]
-  exact h
+def sa : Stream' (BitVec 32) := λ n => ⟨n % (2 ^ 32), Nat.mod_lt n (Nat.zero_lt_succ _)⟩
 
 namespace Step
-  def dotProd (n : Nat) (h_n : 0 < n) : Prog [BV32, BV32] BV32 :=
-    .reduce .add n h_n 0 (.zip .mul (.const _) (.const _))
+  def dotProd (n : Nat) : Prog [BV32, BV32] BV32 :=
+    .reduce .add n 0 (.zip .mul (.const _) (.const _))
 end Step
 
-theorem step_dp_equiv : ∀n : Nat, (h_n : 0 < n) → (Step.dotProd n h_n).denote = dotProd n := by
-  intro n h_n
-  simp [Step.dotProd, dotProd]
-  sorry
+theorem step_dp_equiv : ∀n : Nat, (Step.dotProd n).denote = dotProd n := by
+  intro n
+  apply funext
+  intro x
+  apply (HList.cons.injEq _ _ _ _).mpr
+  apply And.intro
+  <;> repeat (first | (cases x; rename_i x) | rfl)
 
-def sdfDP (n : Nat) (h_n : 0 < n) := (Step.dotProd n h_n).compile
+def sdfDP (n : Nat) := (Step.dotProd n).compile
 
-def checkInput (n : Nat) (h_n : 0 < n) (i : Nat) :=
-  let inps := ([sa, sa]ₕ)
-  let step := (Step.dotProd n h_n).denote inps
-  -- let sdf := (sdfDP n h_n).g.denote inps
+def checkInput (n : Nat) (i : Nat) :=
+  let inps : HList Stream' [BitVec 32, BitVec 32] := ([sa, sa]ₕ)
+  let inpsOption : HList Stream' [Option (BitVec 32), Option (BitVec 32)] := ([
+    λ n => some (sa n),
+    λ n => some (sa n)
+  ]ₕ)
+  let step : Stream' (BitVec 32) := ((Step.dotProd n).denote inps).head
+  let sdfGraph := sdfDP n
+  let sdf : Stream' (Option (BitVec 32)) :=  (sdfGraph.g.denote inpsOption).head
 
-  0
+  let step_res := (step i).toNat
+  match sdf (i * n) with
+  | some r => (step_res, r.toNat, r.toNat == step_res)
+  | _ => (0, 0, false)
+
+#eval checkInput 2 1

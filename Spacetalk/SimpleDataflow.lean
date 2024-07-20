@@ -104,7 +104,7 @@ def Pipeline.eval : Pipeline α β → (DenoList α → DenoList β)
       let bVal ← b
       pure (op.eval aVal bVal)
     [res]ₕ
-  | @Pipeline.guard α => λ ([g, a]ₕ) => [g >>= (Function.const _ a)]ₕ
+  | guard => λ ([g, a]ₕ) => [g >>= (Function.const _ a)]ₕ
   | mux => λ ([cond, a, b]ₕ) =>
     let res := do
       let condVal ← cond

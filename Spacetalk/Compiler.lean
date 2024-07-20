@@ -256,8 +256,8 @@ def reduceBlock {α β : Step.Ty}
     constLen ::ᵥ constOne ::ᵥ constZero ::ᵥ constInit ::ᵥ .nil
   )
   let nodes : SDFNodeList (10 + b.g.nodes.length) := newNodes.append b.g.nodes
-  have h_lt {i : Nat} (h : i < 10) : i < nodes.length := Nat.lt_add_right b.g.nodes.length h
 
+  have h_lt {i : Nat} (h : i < 10) : i < nodes.length := Nat.lt_add_right b.g.nodes.length h
   let outputGuardIdx : Fin nodes.length := ⟨0, h_lt Nat.zero_lt_ten⟩
   let accMuxIdx : Fin nodes.length := ⟨1, h_lt Nat.one_lt_ten⟩
   let reduxIdx : Fin nodes.length := ⟨2, h_lt Nat.two_lt_ten⟩
@@ -278,8 +278,8 @@ def reduceBlock {α β : Step.Ty}
 
   let newFifos : List (FIFO inputs outputs nodes) := [
     .initialized ⟨α.toSDF, some init, accMuxIdx, reduxIdx, .head, .head⟩, -- accumulated value
-    .advancing ⟨α.toSDF, reduxIdx, accMuxIdx, .head, .tail .head, Fin.gt_of_val_gt Nat.two_gt_one⟩, -- redux output
-    .advancing ⟨α.toSDF, constInitIdx, accMuxIdx, .head, .tail (.tail .head), Fin.gt_of_val_gt Nat.nine_gt_one⟩, -- redux initial value
+    .advancing ⟨α.toSDF, reduxIdx, accMuxIdx, .head, .tail (.tail .head), Fin.gt_of_val_gt Nat.two_gt_one⟩, -- redux output
+    .advancing ⟨α.toSDF, constInitIdx, accMuxIdx, .head, .tail .head, Fin.gt_of_val_gt Nat.nine_gt_one⟩, -- redux initial value
     .advancing ⟨SimpleDataflow.BoolTy, ctrCompIdx, accMuxIdx, .head, .head, Fin.gt_of_val_gt Nat.three_gt_one⟩, -- accum mux condition
     .advancing ⟨SimpleDataflow.BoolTy, ctrCompIdx, outputGuardIdx, .head, .head, Fin.gt_of_val_gt Nat.three_gt_zero⟩,
     .advancing ⟨α.toSDF, reduxIdx, outputGuardIdx, .head, .tail .head, Fin.gt_of_val_gt Nat.two_gt_zero⟩,
@@ -318,8 +318,50 @@ def reduceBlock {α β : Step.Ty}
     only_output := only_output
   }
 
-def Step.Prog.compile {inp : List Ty} {out : Ty} : Step.Prog inp out → SDFConv inp out
+def Step.Prog.compile {inp : List Step.Ty} {out : Step.Ty} : Step.Prog inp out → SDFConv inp out
   | .const α => constStreamGraph α
   | .zip op as bs => zipGraph op as.compile bs.compile
   | .map op as => mapGraph op as.compile
-  | .reduce op len _ init bs => reduceBlock op len init bs.compile
+  | .reduce op len init bs => reduceBlock op len init bs.compile
+
+def stream_all_somes {ty : SimpleDataflow.Ty} (s : Stream' ty.denote) := ∀ i, (s i).isSome
+
+def inputs_all_somes {tys : List SimpleDataflow.Ty} (inp : DenoStreamsList tys) :=
+  inp.Forall stream_all_somes
+
+def getOutput {inp : List Step.Ty} {out : Step.Ty}
+  (p : Step.Prog inp out) (inputs : DenoStreamsList (inp.map Step.Ty.toSDF))
+  : Stream' out.toSDF.denote :=
+  HList.head (p.compile.output_eq ▸ (p.compile.g.denote (p.compile.inputs_eq ▸ inputs)))
+
+def throughPutDef {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) (n : Nat) :=
+  (inputs : DenoStreamsList (inp.map Step.Ty.toSDF)) → inputs_all_somes inputs
+  → ∀ i, ((getOutput p inputs) i).isSome ↔ i % n = 0
+
+def Step.Prog.throughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) :=
+  {n : Nat // throughPutDef p n}
+
+def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.throughPut
+  | const a => ⟨1, λ inputs all_somes => by
+      intro i
+      apply Iff.intro
+      · intro
+        apply Nat.mod_one
+      · intro
+        simp [getOutput, compile, DataflowGraph.denote,
+              HList.head, List.find?, List.nthMember,
+              DataflowGraph.isGlobalOutput, List.get, Ty.toSDF]
+        have : SimpleDataflow.Ty.option (SimpleDataflow.Prim.bitVec a.1) = SimpleDataflow.Ty.option (SimpleDataflow.Prim.bitVec a.1) := by simp
+        split
+        split
+        simp [constStreamGraph, DataflowGraph.nthCycleState]
+        sorry
+        sorry
+    ⟩
+  | zip op x y => sorry
+  | map op x => sorry
+  | reduce op n a x => sorry
+
+-- theorem compile_correct {inp : List Step.Ty} {out : Step.Ty} {prog : Step.Prog inp out} :
+--   prog.denote = prog.compile.g.denote := by
+--   sorry

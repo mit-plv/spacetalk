@@ -15,6 +15,12 @@ abbrev DenoList {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := HList
 /-- Lean denotation of a list of sterams of type τ where τ implements Denote -/
 abbrev DenoStreamsList {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := HList Stream' (ts.map Denote.denote)
 
+def DenoStreamsList.Forall  {τ : Type} [instDEq : DecidableEq τ] [instDenote : Denote τ] {ts : List τ} (dsl : DenoStreamsList ts) (p : {t : τ} → Stream' (Denote.denote t) → Prop) : Prop :=
+  match ts, dsl with
+    | [], []ₕ => True
+    | _::[], x ::ₕ []ₕ => p x
+    | _::tt, x ::ₕ t => p x ∧ @DenoStreamsList.Forall τ instDEq instDenote tt t p
+
 /-- Lean denotation of a steram of list of type τ where τ implements Denote -/
 abbrev DenoListsStream {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := Stream' (DenoList ts)
 
@@ -330,7 +336,7 @@ namespace DataflowGraph
     termination_by _ _ n nid => (n, dfg.numNodes - nid)
 
   def denote {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] (dfg : DataflowGraph τ F)
-  (inputs : DenoStreamsList dfg.inputs) : DenoStreamsList (dfg.outputs) :=
+    (inputs : DenoStreamsList dfg.inputs) : DenoStreamsList (dfg.outputs) :=
     let packedInputs := inputs.pack
     let stateStream := dfg.nthCycleState packedInputs
     let outputsFinRange := List.finRange dfg.outputs.length

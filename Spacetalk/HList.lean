@@ -44,9 +44,7 @@ def List.nthMember : (l : List α) → (n : Fin l.length) → Member (l.get n) l
 
 namespace HList
 
-  def length : HList β is → Nat
-    | []ₕ => 0
-    | _ ::ₕ t => 1 + t.length
+  def length : HList β is → Nat := λ_ ↦ is.length
 
   @[simp]
   def get : HList β is → Member i is → β i
