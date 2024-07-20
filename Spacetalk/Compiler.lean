@@ -4,6 +4,8 @@ import Spacetalk.Graph
 import Spacetalk.Vector
 import Spacetalk.Inequalities
 
+open Mathlib
+
 def SDFNode := Node SimpleDataflow.Ty SimpleDataflow.Ops
 
 def SDFNodeList := NodeList SimpleDataflow.Ty SimpleDataflow.Ops
@@ -107,7 +109,7 @@ def convertFifosOutput {inputs outputs : List SimpleDataflow.Ty} {numNodes : Nat
       | .output f =>
         let newProducer := idxConv.conv f.producer
         have h_ty_eq : α.toSDF = f.t := by
-          have : FIFO.output f = .output a.outputFifo := by
+          have : FIFO.output (inputs := inputs) f = .output a.outputFifo := by
             apply List.mem_singleton.mp
             rw [←List.map_singleton, ←a.only_output]
             aesop
@@ -194,7 +196,7 @@ def zipGraph (op : Step.BinaryOp α β γ) (a : SDFConv aInp α) (b : SDFConv bI
   let newGraph : SimpleDataflow.DataflowMachine := ⟨inputs, outputs, nodes.length, nodes, newFifos⟩
 
   have one_output : FIFO.getOutputs newFifos = [newOutputFifo] := by
-    simp [newFifos, FIFO.isOutput, List.filterMap_append]
+    simp [newFifos, List.filterMap_cons, List.filterMap_append]
     apply And.intro convertFifos_no_output convertFifos_no_output
 
   let inputFifos := (FIFO.getInputs aFifosConverted) ++ (FIFO.getInputs bFifosConverted)

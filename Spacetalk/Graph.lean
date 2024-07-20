@@ -1,30 +1,37 @@
-import Mathlib.Data.Vector
+import Mathlib.Data.Vector.Defs
 import Mathlib.Data.Stream.Defs
 import Mathlib.Data.List.Range
 
 import Spacetalk.HList
+
+open Mathlib
 
 -- Bit rep?
 class Denote (τ : Type) [DecidableEq τ] where
   denote : τ → Type
   default : (t : τ) → denote t
 
+section
+variable {τ : Type}
+variable [DecidableEq τ]
+variable [Denote τ]
+
 /-- Lean denotation of a (List τ) where τ implements Denote -/
-abbrev DenoList {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := HList Denote.denote ts
+abbrev DenoList (ts : List τ) := HList Denote.denote ts
 
 /-- Lean denotation of a list of sterams of type τ where τ implements Denote -/
-abbrev DenoStreamsList {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := HList Stream' (ts.map Denote.denote)
+abbrev DenoStreamsList (ts : List τ) := HList Stream' (ts.map Denote.denote)
 
-def DenoStreamsList.Forall  {τ : Type} [instDEq : DecidableEq τ] [instDenote : Denote τ] {ts : List τ} (dsl : DenoStreamsList ts) (p : {t : τ} → Stream' (Denote.denote t) → Prop) : Prop :=
+def DenoStreamsList.Forall {ts : List τ} (dsl : DenoStreamsList ts) (p : {t : τ} → Stream' (Denote.denote t) → Prop) : Prop :=
   match ts, dsl with
     | [], []ₕ => True
     | _::[], x ::ₕ []ₕ => p x
-    | _::tt, x ::ₕ t => p x ∧ @DenoStreamsList.Forall τ instDEq instDenote tt t p
+    | _::_, x ::ₕ t => p x ∧ Forall t p
 
 /-- Lean denotation of a steram of list of type τ where τ implements Denote -/
-abbrev DenoListsStream {τ : Type} [DecidableEq τ] [Denote τ] (ts : List τ) := Stream' (DenoList ts)
+abbrev DenoListsStream (ts : List τ) := Stream' (DenoList ts)
 
-def DenoStreamsList.split {τ : Type} [DecidableEq τ] [Denote τ] {as : List τ} {bs : List τ}
+def DenoStreamsList.split {as : List τ} {bs : List τ}
   (dsl : DenoStreamsList (as ++ bs)) : DenoStreamsList as × DenoStreamsList bs :=
   match as with
   | [] => ([]ₕ, dsl)
@@ -33,7 +40,7 @@ def DenoStreamsList.split {τ : Type} [DecidableEq τ] [Denote τ] {as : List τ
     (dsl.head ::ₕ l, r)
 
 @[simp]
-def DenoStreamsList.pack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} (dsl : DenoStreamsList ts) : DenoListsStream ts :=
+def DenoStreamsList.pack {ts : List τ} (dsl : DenoStreamsList ts) : DenoListsStream ts :=
   match ts with
     | [] => λ _ => []ₕ
     | h::t =>
@@ -45,7 +52,7 @@ def DenoStreamsList.pack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ}
         h_elem ::ₕ (pack tail_streams) n
 
 @[simp]
-def DenoListsStream.unpack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} (dls : DenoListsStream ts) : DenoStreamsList ts :=
+def DenoListsStream.unpack {ts : List τ} (dls : DenoListsStream ts) : DenoStreamsList ts :=
   match ts with
     | [] => []ₕ
     | h::t =>
@@ -55,7 +62,7 @@ def DenoListsStream.unpack {τ : Type} [DecidableEq τ] [Denote τ] {ts : List �
           | _ ::ₕ rest => rest
       h_stream ::ₕ unpack t_stream
 
-theorem DenoStreamsList_pack_unpack_eq {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} {dsl : DenoStreamsList ts}
+theorem DenoStreamsList_pack_unpack_eq {ts : List τ} {dsl : DenoStreamsList ts}
   : dsl.pack.unpack = dsl := by
   induction ts with
   | nil =>
@@ -65,7 +72,7 @@ theorem DenoStreamsList_pack_unpack_eq {τ : Type} [DecidableEq τ] [Denote τ] 
     · rfl
   | cons h t ih => aesop
 
-theorem DenoListsStream_unpack_pack_eq {τ : Type} [DecidableEq τ] [Denote τ] {ts : List τ} {dls : DenoListsStream ts}
+theorem DenoListsStream_unpack_pack_eq {ts : List τ} {dls : DenoListsStream ts}
   : dls.unpack.pack = dls := by
   apply funext
   intro n
@@ -87,8 +94,11 @@ theorem DenoListsStream_unpack_pack_eq {τ : Type} [DecidableEq τ] [Denote τ] 
 abbrev NodeType (τ : Type) [DecidableEq τ][Denote τ] :=
   (inputs : List τ) → (outputs : List τ) → (state : List τ) → Type
 
-class NodeOps {τ : Type} [DecidableEq τ][Denote τ] (F : NodeType τ) where
+class NodeOps (F : NodeType τ) where
   eval : F inputs outputs state → DenoList inputs → DenoList state → (DenoList outputs × DenoList state)
+
+variable {F : NodeType τ}
+variable [NodeOps F]
 
 structure Node (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] where
   inputs : List τ
@@ -100,22 +110,19 @@ structure Node (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeO
 def NodeList (τ : Type) [DecidableEq τ][Denote τ] (F : NodeType τ) [NodeOps F] (numNodes : Nat) :=
   Vector (Node τ F) numNodes
 
-structure InputFIFO {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-  (inputs : List τ) (nodes : NodeList τ F numNodes) where
+structure InputFIFO (inputs : List τ) (nodes : NodeList τ F numNodes) where
   t : τ
   producer : Member t inputs
   consumer : Fin numNodes
   consumerPort: Member t (nodes.get consumer).inputs
 
-structure OutputFIFO {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-  (outputs : List τ) (nodes : NodeList τ F numNodes) where
+structure OutputFIFO (outputs : List τ) (nodes : NodeList τ F numNodes) where
   t : τ
   producer : Fin numNodes
   producerPort: Member t (nodes.get producer).outputs
   consumer : Member t outputs
 
-structure AdvancingFIFO {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-  (nodes : NodeList τ F numNodes) where
+structure AdvancingFIFO (nodes : NodeList τ F numNodes) where
   t : τ
   producer : Fin numNodes
   consumer : Fin numNodes
@@ -124,8 +131,7 @@ structure AdvancingFIFO {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType �
   /-- We put consumers earlier in the nodes list because `Vector.cons` puts new nodes in the front. -/
   adv : producer > consumer
 
-structure InitializedFIFO {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-  (nodes : NodeList τ F numNodes) where
+structure InitializedFIFO (nodes : NodeList τ F numNodes) where
   t : τ
   initialValue : Denote.denote t
   producer : Fin numNodes
@@ -133,82 +139,80 @@ structure InitializedFIFO {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType
   producerPort: Member t (nodes.get producer).outputs
   consumerPort: Member t (nodes.get consumer).inputs
 
-inductive FIFO {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-  {numNodes : Nat} (inputs outputs : List τ) (nodes : NodeList τ F numNodes)
+inductive FIFO (inputs outputs : List τ) (nodes : NodeList τ F numNodes)
   | input : InputFIFO inputs nodes → FIFO inputs outputs nodes
   | output : OutputFIFO outputs nodes → FIFO inputs outputs nodes
   | advancing : AdvancingFIFO nodes → FIFO inputs outputs nodes
   | initialized : InitializedFIFO nodes → FIFO inputs outputs nodes
 
+
 namespace FIFO
+section
+variable {numNodes : Nat}
+variable {nodes : NodeList τ F numNodes}
 
   @[simp]
-  def t {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → τ
+  def t {inputs outputs : List τ} : (fifo : FIFO inputs outputs nodes) → τ
     | .input f | .output f | .advancing f | .initialized f => f.t
 
   @[simp]
-  def isInput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → Bool
+  def isInput {inputs outputs : List τ} : (fifo : FIFO inputs outputs nodes) → Bool
     | .input _ => true
     | _ => false
 
   @[simp]
-  def isOutput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → Bool
+  def isOutput {inputs outputs : List τ} : (fifo : FIFO inputs outputs nodes) → Bool
     | .output _ => true
     | _ => false
 
-  theorem outputNotInput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
-    {fifo : FIFO inputs outputs nodes}
+  theorem outputNotInput {inputs outputs : List τ} {fifo : FIFO inputs outputs nodes}
     : fifo.isOutput = true → fifo.isInput = false := by
     intro h
     cases h_match : fifo <;> repeat (first | simp | simp [h_match, FIFO.isOutput] at h)
 
-  theorem inputNotOutput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
-    {fifo : FIFO inputs outputs nodes}
+  theorem inputNotOutput {inputs outputs : List τ} {fifo : FIFO inputs outputs nodes}
     : fifo.isInput = true → fifo.isOutput = false := by
     intro h
     cases h_match : fifo <;> repeat (first | simp [FIFO.isOutput] | simp [h_match] at h)
 
-  def producer {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def producer {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → fifo.isInput = false → Fin numNodes
     | .initialized f, _ | .advancing f, _ | .output f, _ => f.producer
 
-  def producerPort {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def producerPort {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → (h : fifo.isInput = false) → Member fifo.t (nodes.get (fifo.producer h)).outputs
     | .initialized f, _ | .advancing f, _ | .output f, _ => f.producerPort
 
-  def consumer {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def consumer {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → fifo.isOutput = false → Fin numNodes
     | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumer
 
-  def consumerPort {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def consumerPort {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → (h : fifo.isOutput = false) → Member fifo.t (nodes.get (fifo.consumer h)).inputs
     | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumerPort
 
   @[simp]
-  def getInput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def getInput {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → Option (InputFIFO inputs nodes)
     | input f => some f
     | _ => none
 
   @[simp]
-  def getInputs {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def getInputs {inputs outputs : List τ}
     (fifos : List (FIFO inputs outputs nodes)) : List (InputFIFO inputs nodes) :=
     fifos.filterMap getInput
 
   @[simp]
-  def getOutput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def getOutput {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → Option (OutputFIFO outputs nodes)
     | output f => some f
     | _ => none
 
   @[simp]
-  def getOutputs {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {numNodes : Nat} {nodes : NodeList τ F numNodes} {inputs outputs : List τ}
+  def getOutputs {inputs outputs : List τ}
     (fifos : List (FIFO inputs outputs nodes)) : List (OutputFIFO outputs nodes) :=
     fifos.filterMap getOutput
-
+end
 end FIFO
 
 structure DataflowGraph (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] where
@@ -224,11 +228,9 @@ end Node
 
 namespace DataflowGraph
 
-  def FIFOType {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-    (dfg : DataflowGraph τ F) := FIFO dfg.inputs dfg.outputs dfg.nodes
+  def FIFOType (dfg : DataflowGraph τ F) := FIFO dfg.inputs dfg.outputs dfg.nodes
 
-  def isNodeInput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-    {dfg : DataflowGraph τ F} {nid : Fin dfg.numNodes} {t : τ}
+  def isNodeInput {dfg : DataflowGraph τ F} {nid : Fin dfg.numNodes} {t : τ}
     (port : Member t (dfg.nodes.get nid).inputs) (fifo : dfg.FIFOType) : Bool :=
     match fifo with
       | .input fifo' | .initialized fifo' | .advancing fifo' =>
@@ -238,8 +240,7 @@ namespace DataflowGraph
           false
       | _ => false
 
-  def isGlobalOutput {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F]
-    {dfg : DataflowGraph τ F} {t : τ}
+  def isGlobalOutput {dfg : DataflowGraph τ F} {t : τ}
     (output : Member t dfg.outputs) (fifo : dfg.FIFOType) : Bool :=
     match fifo with
       | .output fifo' =>
@@ -249,10 +250,10 @@ namespace DataflowGraph
           false
       | _ => false
 
-  def stateMap {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] (dfg : DataflowGraph τ F) :=
+  def stateMap (dfg : DataflowGraph τ F) :=
     (nid : Fin dfg.numNodes) → (DenoList (dfg.nodes.get nid).outputs) × (DenoList (dfg.nodes.get nid).state)
 
-  theorem node_input_fifo_ty_eq {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {dfg : DataflowGraph τ F}
+  theorem node_input_fifo_ty_eq {dfg : DataflowGraph τ F}
     {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
     {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : dfg.FIFOType}
     (h_is_node_input : dfg.isNodeInput port fifo = true) : fifo.t = (dfg.nodes.get nid).inputs.get fin := by
@@ -269,7 +270,7 @@ namespace DataflowGraph
       exact p.right
     )
 
-  theorem advancing_fifo_lt {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {dfg : DataflowGraph τ F}
+  theorem advancing_fifo_lt {dfg : DataflowGraph τ F}
     {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
     {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : AdvancingFIFO dfg.nodes}
     (h_is_node_input : dfg.isNodeInput port (.advancing fifo) = true) : nid < fifo.producer := by
@@ -286,7 +287,7 @@ namespace DataflowGraph
     rw [←this]
     exact fifo.adv
 
-  theorem global_output_ty_eq {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] {dfg : DataflowGraph τ F}
+  theorem global_output_ty_eq {dfg : DataflowGraph τ F}
     {fin : Fin dfg.outputs.length} {fifo : dfg.FIFOType}
     (h_is_output : isGlobalOutput (dfg.outputs.nthMember fin) fifo = true) : fifo.t = dfg.outputs.get fin := by
     cases h_fm : fifo <;> simp [h_fm, isGlobalOutput] at h_is_output
@@ -298,9 +299,8 @@ namespace DataflowGraph
       have := e.snd
       contradiction
 
-  def nthCycleState {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] :
-    (dfg : DataflowGraph τ F) → DenoListsStream dfg.inputs → Nat → dfg.stateMap :=
-    λ dfg inputs n nid =>
+  def nthCycleState (dfg : DataflowGraph τ F) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
+    λ n nid =>
       let node := dfg.nodes.get nid
       let inputsFinRange := List.finRange node.inputs.length
       have finRange_map_eq : inputsFinRange.map node.inputs.get = node.inputs := List.finRange_map_get node.inputs
@@ -333,9 +333,9 @@ namespace DataflowGraph
          | 0 => node.initialState
          | n' + 1 => (dfg.nthCycleState inputs n' nid).snd
       (NodeOps.eval node.ops) nodeInputs currState
-    termination_by _ _ n nid => (n, dfg.numNodes - nid)
+    termination_by n nid => (n, dfg.numNodes - nid)
 
-  def denote {τ : Type} [DecidableEq τ] [Denote τ] {F : NodeType τ} [NodeOps F] (dfg : DataflowGraph τ F)
+  def denote (dfg : DataflowGraph τ F)
     (inputs : DenoStreamsList dfg.inputs) : DenoStreamsList (dfg.outputs) :=
     let packedInputs := inputs.pack
     let stateStream := dfg.nthCycleState packedInputs
@@ -360,3 +360,5 @@ namespace DataflowGraph
     packedOutputStream.unpack
 
 end DataflowGraph
+
+end

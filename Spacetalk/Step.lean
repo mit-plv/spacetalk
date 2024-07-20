@@ -50,7 +50,7 @@ def UnaryOp.denote : UnaryOp α β → α.denote → β.denote
   | UnaryOp.mulConst c => BitVec.mul c
 
 def Prog.denote {inputs : List Ty} {α : Ty} : Prog inputs α → (DenoStreamsList inputs → DenoStreamsList [α])
-  | .const _ => λ ([a]ₕ) ↦ [a]ₕ
+  | .const α => λ ([a]ₕ) ↦ [a]ₕ
   | .zip op as bs => λ inp ↦ let (aInp, bInp) := inp.split; [Stream'.zip op.denote (as.denote aInp).head (bs.denote bInp).head]ₕ
   | .map op as => λ inp ↦ [Stream'.map op.denote (as.denote inp).head]ₕ
   | .reduce op n init bs => λ inp ↦ [Stream'.reduce op.denote n init (bs.denote inp).head]ₕ
