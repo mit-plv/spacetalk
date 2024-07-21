@@ -76,6 +76,11 @@ namespace HList
       | [] => ([]ₕ, hl)
       | _::_ => let (l, r) := hl.tail.split; (hl.head ::ₕ l, r)
 
+  -- def map {α : Type v} {β : α → Type u} {γ : Type w} {δ : γ → Type x} {is : List α}
+  --   (f : α → γ) (g : {a : α} → β a → δ (f a)) : HList β is → HList δ (is.map f)
+  --   | []ₕ => []ₕ
+  --   | h ::ₕ t => g h ::ₕ map f g t
+
 end HList
 
 infixr:67 " ++ₕ " => HList.append

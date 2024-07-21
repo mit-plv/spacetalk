@@ -22,11 +22,17 @@ abbrev DenoList (ts : List τ) := HList Denote.denote ts
 /-- Lean denotation of a list of sterams of type τ where τ implements Denote -/
 abbrev DenoStreamsList (ts : List τ) := HList Stream' (ts.map Denote.denote)
 
+@[simp]
 def DenoStreamsList.Forall {ts : List τ} (dsl : DenoStreamsList ts) (p : {t : τ} → Stream' (Denote.denote t) → Prop) : Prop :=
   match ts, dsl with
     | [], []ₕ => True
-    | _::[], x ::ₕ []ₕ => p x
     | _::_, x ::ₕ t => p x ∧ Forall t p
+
+def DenoStreamsList.map {τ' : Type} [DecidableEq τ'] [Denote τ']
+  (f : τ → τ') (g : {t : τ} → Denote.denote t → Denote.denote (f t)) :
+  {ts : List τ} → DenoStreamsList ts → DenoStreamsList (ts.map f)
+  | [], []ₕ => []ₕ
+  | _::_, vh ::ₕ vt => (λ i => g (vh i)) ::ₕ DenoStreamsList.map f g vt
 
 /-- Lean denotation of a steram of list of type τ where τ implements Denote -/
 abbrev DenoListsStream (ts : List τ) := Stream' (DenoList ts)

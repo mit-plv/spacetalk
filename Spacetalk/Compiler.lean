@@ -326,10 +326,8 @@ def Step.Prog.compile {inp : List Step.Ty} {out : Step.Ty} : Step.Prog inp out �
   | .map op as => mapGraph op as.compile
   | .reduce op len init bs => reduceBlock op len init bs.compile
 
-def stream_all_somes {ty : SimpleDataflow.Ty} (s : Stream' ty.denote) := ∀ i, (s i).isSome
-
-def inputs_all_somes {tys : List SimpleDataflow.Ty} (inp : DenoStreamsList tys) :=
-  inp.Forall stream_all_somes
+def inputs_all_somes {tys : List SimpleDataflow.Ty} (inp : DenoStreamsList tys) : Prop :=
+  inp.Forall (λ s => ∀ i, (s i).isSome)
 
 def getOutput {inp : List Step.Ty} {out : Step.Ty}
   (p : Step.Prog inp out) (inputs : DenoStreamsList (inp.map Step.Ty.toSDF))
@@ -364,6 +362,33 @@ def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Pro
   | map op x => sorry
   | reduce op n a x => sorry
 
--- theorem compile_correct {inp : List Step.Ty} {out : Step.Ty} {prog : Step.Prog inp out} :
---   prog.denote = prog.compile.g.denote := by
---   sorry
+def Step.Prog.filteredOutput {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out)
+  (inputs : DenoStreamsList (inp.map Step.Ty.toSDF)) (h_some : inputs_all_somes inputs)
+  : DenoStreamsList [out] :=
+  let tp := p.getThroughPut
+  let outputs := getOutput p inputs
+  [λ (i : Nat) => (outputs (i * tp.val)).get (by
+    apply (tp.prop inputs h_some (i * tp.val)).mpr
+    simp
+  )]ₕ
+
+def transformInputs {inp : List Step.Ty} (inputs : DenoStreamsList inp)
+  : {inputs' : DenoStreamsList (inp.map Step.Ty.toSDF) // inputs_all_somes inputs'} :=
+  let transformed := inputs.map Step.Ty.toSDF some
+  have prop := by
+    simp [inputs_all_somes, transformed]
+    induction inp with
+    | nil =>
+      cases inputs
+      simp
+    | cons h t ih =>
+      cases inputs
+      apply And.intro
+      · simp
+      · apply ih
+  ⟨transformed, prop⟩
+
+theorem compile_correct {inp : List Step.Ty} {out : Step.Ty} {prog : Step.Prog inp out}
+  (inputs : DenoStreamsList inp) :
+  prog.denote inputs = prog.filteredOutput (transformInputs inputs).val (transformInputs inputs).property := by
+  sorry
