@@ -241,7 +241,7 @@ namespace DataflowGraph
     match fifo with
       | .input fifo' | .initialized fifo' | .advancing fifo' =>
         if h : fifo'.consumer = nid ∧ fifo'.t = t then
-          h.left ▸ h.right ▸ fifo'.consumerPort == port
+          h.left ▸ h.right ▸ fifo'.consumerPort = port
         else
           false
       | _ => false
@@ -251,7 +251,7 @@ namespace DataflowGraph
     match fifo with
       | .output fifo' =>
         if h : fifo'.t = t then
-          h ▸ fifo'.consumer == output
+          h ▸ fifo'.consumer = output
         else
           false
       | _ => false

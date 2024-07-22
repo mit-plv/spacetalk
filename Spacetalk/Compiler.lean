@@ -342,21 +342,27 @@ def Step.Prog.throughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp
   {n : Nat // throughPutDef p n}
 
 def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.throughPut
-  | const a => ⟨1, λ inputs all_somes => by
-      intro i
+  | const a => ⟨1, λ inputs all_somes i => by
       apply Iff.intro
       · intro
         apply Nat.mod_one
       · intro
-        simp [getOutput, compile, DataflowGraph.denote,
-              HList.head, List.find?, List.nthMember,
-              DataflowGraph.isGlobalOutput, List.get, Ty.toSDF]
-        have : SimpleDataflow.Ty.option (SimpleDataflow.Prim.bitVec a.1) = SimpleDataflow.Ty.option (SimpleDataflow.Prim.bitVec a.1) := by simp
-        split
-        split
-        simp [constStreamGraph, DataflowGraph.nthCycleState]
-        sorry
-        sorry
+        simp [getOutput, compile, constStreamGraph, HList.head, DataflowGraph.denote,
+              List.find?, DataflowGraph.isGlobalOutput]
+        cases a
+        rename_i a'
+        cases a'
+        · simp [Vector.cons, List.nthMember, BEq.beq, decide,
+                instDecidableEqMember, Member.decEq, Step.Ty.toSDF]
+          dsimp [DataflowGraph.nthCycleState, DataflowGraph.nthCycleState._unary]
+          simp [WellFounded.fix, WellFounded.fixF]
+          simp [NodeOps.eval, SimpleDataflow.Pipeline.eval]
+          simp [Vector.get]
+          simp [Denote.denote]
+          simp [Denote.default, SimpleDataflow.Ty.default]
+          simp [Option.isSome]
+          sorry
+        · sorry
     ⟩
   | zip op x y => sorry
   | map op x => sorry

@@ -18,7 +18,49 @@ macro_rules
 inductive Member {α : Type u} : α → List α → Type u
   | head : Member a (a::as)
   | tail : Member a bs → Member a (b::bs)
-deriving BEq, DecidableEq
+
+def Member.beq : Member a as → Member a as → Bool
+  | .head, .head => true
+  | .tail x, .tail y => Member.beq x y
+  | _, _ => false
+
+instance : BEq (Member a as) where
+  beq := Member.beq
+
+def Member.decEq : (x : Member a as) → (y : Member a as) → Decidable (x = y)
+  | .head, .head => isTrue rfl
+  | .tail x, .tail y =>
+    match Member.decEq x y with
+    | .isTrue p => isTrue ((Member.tail.injEq x y).to_iff.mpr p)
+    | .isFalse p => isFalse (fun h => p (Member.tail.inj h))
+  | .head, .tail _ => isFalse (fun h => Member.noConfusion h)
+  | .tail _, .head => isFalse (fun h => Member.noConfusion h)
+
+instance : DecidableEq (Member a as) :=
+  Member.decEq
+
+instance : LawfulBEq (Member a as) where
+  rfl := by
+    intro x
+    simp [BEq.beq]
+    induction x with
+    | head => rfl
+    | tail x' ih =>
+      simp [Member.beq]
+      exact ih
+
+  eq_of_beq := by
+    intro x y h
+    induction x
+    cases y
+    · simp
+    · simp [BEq.beq, Member.beq] at h
+    · cases y
+      simp [BEq.beq, Member.beq] at h
+      rename_i a_ih _
+      simp
+      apply a_ih
+      exact h
 
 theorem Member.to_mem : Member a l → a ∈ l
   | .head => List.mem_of_mem_head? rfl
