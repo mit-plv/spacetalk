@@ -352,12 +352,13 @@ def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Pro
         induction i with
         | zero =>
           simp [getOutput, compile, DataflowGraph.denote]
-          simp [List.find?]
-          simp [DataflowGraph.isGlobalOutput]
-          have : 0 < (constStreamGraph a).g.outputs.length := sorry
-          have : (a.toSDF = (constStreamGraph a).g.outputs[0]) = True := sorry
-          rw [this]
-          simp [constStreamGraph]
+          simp [DataflowGraph.nthCycleState]
+          -- simp [List.find?]
+          -- simp [DataflowGraph.isGlobalOutput]
+          -- have : 0 < (constStreamGraph a).g.outputs.length := sorry
+          -- have : (a.toSDF = (constStreamGraph a).g.outputs[0]) = True := sorry
+          -- rw [this]
+          -- simp [constStreamGraph]
           -- simp [DataflowGraph.isGlobalOutput]
           sorry
           -- split

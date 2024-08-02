@@ -336,10 +336,8 @@ namespace DataflowGraph
          | n' + 1 => (dfg.nthCycleState inputs n' nid).snd
       (NodeOps.eval node.ops) nodeInputs currState
     termination_by n nid => (n, dfg.numNodes - nid)
-    -- decreasing_by
-    --   · simp_wf; apply Prod.Lex.right; zify; aesop
-    --   · simp_wf; apply Prod.Lex.left; simp
-    --   · simp_wf; apply Prod.Lex.left; simp
+
+  #check nthCycleState.eq_def
 
   theorem nthCycleState_zero {dfg : DataflowGraph τ F} {inputs : DenoListsStream dfg.inputs}
     : dfg.nthCycleState inputs 0 = (
@@ -367,11 +365,6 @@ namespace DataflowGraph
       let currState : DenoList node.state := node.initialState
       (NodeOps.eval node.ops) nodeInputs currState
     ) := by
-    delta nthCycleState
-    simp [nthCycleState._unary]
-    simp [WellFounded.fix]
-    simp [WellFounded.fixF]
-    -- delta Acc.rec
     sorry
 
   def denote (dfg : DataflowGraph τ F)
@@ -401,3 +394,5 @@ namespace DataflowGraph
 end DataflowGraph
 
 end
+
+-- def wf_rec {n : Nat} (v : Vector Nat n)
