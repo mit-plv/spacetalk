@@ -90,8 +90,7 @@ def appendConverter {xs : Vector α n} {ys : Vector α m} (newConsumer : Fin n) 
 
 /-- Assume new consumer has index 0. -/
 def convertFifosOutput {inputs outputs : List SimpleDataflow.Ty} {numNodes : Nat} {nodes : SDFNodeList numNodes}
-  (h_len : 0 < numNodes) (a : SDFConv aInp α)
-  (idxConv : IndexConverter a.g.nodes nodes)
+  (a : SDFConv aInp α) (idxConv : IndexConverter a.g.nodes nodes)
   (newConsumerPort : Member α.toSDF (nodes.get idxConv.newConsumer).inputs)
   (memConv : {t : SimpleDataflow.Ty} → Member t a.g.inputs → Member t inputs)
   : List (FIFO inputs outputs nodes) :=
@@ -153,11 +152,10 @@ def convertFifosOutput {inputs outputs : List SimpleDataflow.Ty} {numNodes : Nat
 
 theorem convertFifos_no_output
   {a : SDFConv aInp α}
-  {h_len : 0 < numNodes}
   {idxConv : IndexConverter a.g.nodes nodes}
   {newConsumerPort : Member α.toSDF (nodes.get idxConv.newConsumer).inputs}
   {memConv : {t : SimpleDataflow.Ty} → Member t a.g.inputs → Member t inputs}
-  : FIFO.getOutputs (convertFifosOutput h_len a idxConv newConsumerPort memConv) (outputs := outputs) = [] := by
+  : FIFO.getOutputs (convertFifosOutput a idxConv newConsumerPort memConv) (outputs := outputs) = [] := by
   simp [List.eq_nil_iff_forall_not_mem, List.mem_filterMap]
   intro _ fifo h_mem
   have h_map := List.mem_map.mp h_mem
@@ -188,8 +186,8 @@ def zipGraph (op : Step.BinaryOp α β γ) (a : SDFConv aInp α) (b : SDFConv bI
   let opNode : SDFNode := ⟨[α.toSDF, β.toSDF], outputs, [], []ₕ, op.compile⟩
   let nodes := opNode ::ᵥ (a.g.nodes.append b.g.nodes)
 
-  let aFifosConverted : List (FIFO inputs outputs nodes) := convertFifosOutput (Nat.zero_lt_succ _) a consConverter .head .append_left
-  let bFifosConverted : List (FIFO inputs outputs nodes) := convertFifosOutput (Nat.zero_lt_succ _) b consAppendConverter (.tail .head) .append_right
+  let aFifosConverted : List (FIFO inputs outputs nodes) := convertFifosOutput a consConverter .head .append_left
+  let bFifosConverted : List (FIFO inputs outputs nodes) := convertFifosOutput b consAppendConverter (.tail .head) .append_right
 
   let newOutputFifo : OutputFIFO outputs nodes := ⟨γ.toSDF, 0, .head, .head⟩
   let newFifos := .output newOutputFifo :: (aFifosConverted ++ bFifosConverted)
@@ -274,7 +272,7 @@ def reduceBlock {α β : Step.Ty}
   let inputs := b.g.inputs
   let outputs := [α.toSDF]
 
-  let bFifosConverted : List (FIFO inputs outputs nodes) := convertFifosOutput (h_lt Nat.zero_lt_ten) b (appendConverter reduxIdx) (.tail .head) id
+  let bFifosConverted : List (FIFO inputs outputs nodes) := convertFifosOutput b (appendConverter reduxIdx) (.tail .head) id
 
   let outputFifo := ⟨α.toSDF, outputGuardIdx, .head, .head⟩
 
@@ -341,28 +339,60 @@ def throughPutDef {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) (
 def Step.Prog.throughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) :=
   {n : Nat // throughPutDef p n}
 
+-- set_option maxRecDepth 10000
+-- set_option maxHeartbeats 1000000
 def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.throughPut
   | const a => ⟨1, λ inputs all_somes i => by
       apply Iff.intro
       · intro
         apply Nat.mod_one
       · intro
-        simp [getOutput, compile, constStreamGraph, HList.head, DataflowGraph.denote,
-              List.find?, DataflowGraph.isGlobalOutput]
-        cases a
-        rename_i a'
-        cases a'
-        · simp [Vector.cons, List.nthMember, BEq.beq, decide,
-                instDecidableEqMember, Member.decEq, Step.Ty.toSDF]
-          dsimp [DataflowGraph.nthCycleState, DataflowGraph.nthCycleState._unary]
-          simp [WellFounded.fix, WellFounded.fixF]
-          simp [NodeOps.eval, SimpleDataflow.Pipeline.eval]
-          simp [Vector.get]
-          simp [Denote.denote]
-          simp [Denote.default, SimpleDataflow.Ty.default]
-          simp [Option.isSome]
+        induction i with
+        | zero =>
+          simp [getOutput, compile, constStreamGraph, HList.head, DataflowGraph.denote, List.find?,
+                DataflowGraph.isGlobalOutput]
+          split
+          · rename_i fifo heq
+            simp [List.nthMember] at heq
+            subst heq
+            simp
+            rw [DataflowGraph.nthCycleState_zero]
+            simp [HList.head, SimpleDataflow.Pipeline.eval,
+                  -- Vector.get, Node.ops, Node.state, Node.outputs, Subtype.val,
+                  -- HList.append, List.append,
+                  Vector.cons, Vector.get, List.toHList, List.find?,
+                  DataflowGraph.isNodeInput,
+                  SimpleDataflow.UnaryOp.eval]
+            have : a.toSDF = a.toSDF := rfl
+            -- rw [this]
+            -- split
+            -- rename_i heq
+            -- split at heq
+            -- rename_i heq'
+            -- split at heq'
+            -- rename_i heq''
+            -- simp [List.nthMember] at heq''
+
+            sorry
+          · rename_i heq
+            simp [List.nthMember] at heq
+        | succ n ih =>
+
           sorry
-        · sorry
+        -- simp [getOutput, compile, constStreamGraph, HList.head, DataflowGraph.denote,
+        --       List.find?, DataflowGraph.isGlobalOutput]
+        -- cases a
+        -- rename_i a'
+        -- cases a'
+        -- · simp [Vector.cons, List.nthMember, BEq.beq, decide,
+        --         instDecidableEqMember, Member.decEq, Step.Ty.toSDF]
+        --   dsimp [DataflowGraph.nthCycleState, DataflowGraph.nthCycleState._unary]
+        --   simp [WellFounded.fix, WellFounded.fixF]
+        --   simp [NodeOps.eval, SimpleDataflow.Pipeline.eval]
+        --   simp [Vector.get]
+        --   simp [Denote.denote]
+        --   simp [Denote.default, SimpleDataflow.Ty.default]
+        --   simp [Option.isSome]
     ⟩
   | zip op x y => sorry
   | map op x => sorry

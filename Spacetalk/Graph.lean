@@ -1,6 +1,7 @@
 import Mathlib.Data.Vector.Defs
 import Mathlib.Data.Stream.Defs
 import Mathlib.Data.List.Range
+import Mathlib.Tactic.Linarith.Frontend
 
 import Spacetalk.HList
 
@@ -340,6 +341,43 @@ namespace DataflowGraph
          | n' + 1 => (dfg.nthCycleState inputs n' nid).snd
       (NodeOps.eval node.ops) nodeInputs currState
     termination_by n nid => (n, dfg.numNodes - nid)
+    -- decreasing_by
+    --   · simp_wf; apply Prod.Lex.right; zify; aesop
+    --   · simp_wf; apply Prod.Lex.left; simp
+    --   · simp_wf; apply Prod.Lex.left; simp
+
+  theorem nthCycleState_zero {dfg : DataflowGraph τ F} {inputs : DenoListsStream dfg.inputs}
+    : dfg.nthCycleState inputs 0 = (
+      λ nid =>
+      let node := dfg.nodes.get nid
+      let inputsFinRange := List.finRange node.inputs.length
+      have finRange_map_eq : inputsFinRange.map node.inputs.get = node.inputs := List.finRange_map_get node.inputs
+      let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get (
+        λ fin =>
+          let port := node.inputs.nthMember fin
+          let fifoOpt := dfg.fifos.find? (dfg.isNodeInput port)
+          match h_match_opt : fifoOpt with
+            | .some fifo =>
+              have h_is_node_input : dfg.isNodeInput port fifo = true := List.find?_some h_match_opt
+              have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq (h_is_node_input)
+              match fifo with
+                | .input fifo' => h_ty_eq ▸ (inputs 0).get fifo'.producer
+                | .advancing fifo' =>
+                  let producerOutputs := (dfg.nthCycleState inputs 0 fifo'.producer).fst
+                  h_ty_eq ▸ producerOutputs.get fifo'.producerPort
+                | .initialized fifo' => h_ty_eq ▸ fifo'.initialValue
+            | .none =>
+              Denote.default (node.inputs.get fin)
+      )
+      let currState : DenoList node.state := node.initialState
+      (NodeOps.eval node.ops) nodeInputs currState
+    ) := by
+    delta nthCycleState
+    simp [nthCycleState._unary]
+    simp [WellFounded.fix]
+    simp [WellFounded.fixF]
+    -- delta Acc.rec
+    sorry
 
   def denote (dfg : DataflowGraph τ F)
     (inputs : DenoStreamsList dfg.inputs) : DenoStreamsList (dfg.outputs) :=
