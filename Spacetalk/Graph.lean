@@ -251,8 +251,9 @@ namespace DataflowGraph
     (output : Member t dfg.outputs) (fifo : dfg.FIFOType) : Bool :=
     match fifo with
       | .output fifo' =>
-        if h : fifo'.t = t then
-          h ▸ fifo'.consumer = output
+        if fifo'.t = t then
+          -- h ▸ fifo'.consumer = output
+          fifo'.consumer.compare output
         else
           false
       | _ => false
@@ -298,13 +299,7 @@ namespace DataflowGraph
     {fin : Fin dfg.outputs.length} {fifo : dfg.FIFOType}
     (h_is_output : isGlobalOutput (dfg.outputs.nthMember fin) fifo = true) : fifo.t = dfg.outputs.get fin := by
     cases h_fm : fifo <;> simp [h_fm, isGlobalOutput] at h_is_output
-    rename_i fifo'
-    apply (dite_eq_iff.mp h_is_output).elim
-    · intro e
-      exact e.fst
-    · intro e
-      have := e.snd
-      contradiction
+    exact h_is_output.left
 
   def nthCycleState (dfg : DataflowGraph τ F) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
     λ n nid =>

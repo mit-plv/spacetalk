@@ -339,6 +339,8 @@ def throughPutDef {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) (
 def Step.Prog.throughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) :=
   {n : Nat // throughPutDef p n}
 
+theorem sdf_eq {a : Step.Ty} : (a.toSDF = a.toSDF) = True := by simp
+
 -- set_option maxRecDepth 10000
 -- set_option maxHeartbeats 1000000
 def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.throughPut
@@ -349,33 +351,76 @@ def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Pro
       · intro
         induction i with
         | zero =>
-          simp [getOutput, compile, constStreamGraph, HList.head, DataflowGraph.denote, List.find?,
-                DataflowGraph.isGlobalOutput]
-          split
-          · rename_i fifo heq
-            simp [List.nthMember] at heq
-            subst heq
-            simp
-            rw [DataflowGraph.nthCycleState_zero]
-            simp [HList.head, SimpleDataflow.Pipeline.eval,
-                  -- Vector.get, Node.ops, Node.state, Node.outputs, Subtype.val,
-                  -- HList.append, List.append,
-                  Vector.cons, Vector.get, List.toHList, List.find?,
-                  DataflowGraph.isNodeInput,
-                  SimpleDataflow.UnaryOp.eval]
-            have : a.toSDF = a.toSDF := rfl
-            -- rw [this]
-            -- split
-            -- rename_i heq
-            -- split at heq
-            -- rename_i heq'
-            -- split at heq'
-            -- rename_i heq''
-            -- simp [List.nthMember] at heq''
+          simp [getOutput, compile, DataflowGraph.denote]
+          simp [List.find?]
+          simp [DataflowGraph.isGlobalOutput]
+          have : 0 < (constStreamGraph a).g.outputs.length := sorry
+          have : (a.toSDF = (constStreamGraph a).g.outputs[0]) = True := sorry
+          rw [this]
+          simp [constStreamGraph]
+          -- simp [DataflowGraph.isGlobalOutput]
+          sorry
+          -- split
+          -- · rename_i fifo heq
+          --   simp [List.nthMember] at heq
+          --   subst heq
+          --   simp
+          --   rw [DataflowGraph.nthCycleState_zero]
+          --   simp [HList.head, SimpleDataflow.Pipeline.eval,
+          --         -- Vector.get, Node.ops, Node.state, Node.outputs, Subtype.val,
+          --         -- HList.append, List.append,
+          --         Vector.cons, Vector.get, List.toHList, List.find?,
+          --         DataflowGraph.isNodeInput,
+          --         SimpleDataflow.UnaryOp.eval,
+          --         Option.isSome]
+          --   simp [Denote.default, SimpleDataflow.Ty.default]
 
-            sorry
-          · rename_i heq
-            simp [List.nthMember] at heq
+          --   simp [Step.Ty.toSDF]
+          --   simp [SimpleDataflow.instDecidableEqTy]
+          --   split
+          --   · simp
+          --   · split at heq
+          --     · rename_i heq' _ _
+          --       split at heq'
+          --       rename_i heq''
+          --       split at heq''
+          --       rename_i heq'''
+          --       split at heq'''
+          --       · rename_i heq''''
+          --         rename_i fifo'
+          --         rename_i heq''''' _ _ _ _ _
+          --         split at heq'''''
+          --         · simp_all
+          --           split at heq'''
+          --           · simp_all [DataflowGraph.FIFOType, Vector.head]
+          --             rename_i h_ty_eq
+          --             split at h_ty_eq
+          --             · simp_all
+          --               split at heq''''
+          --               · simp_all
+          --                 rename_i heqm _ _ _ _ _
+          --                 split at heqm
+          --                 · rename_i heq_if
+          --                   split at heq_if
+          --                   · simp at heqm
+          --                     rename_i heqm' _ _ _ _ _ _ _
+          --                     split at heqm'
+          --                     · simp at heqm'
+          --                       sorry
+          --                     · sorry
+          --                   · sorry
+          --                 · sorry
+          --               · sorry
+          --             · sorry
+          --             · sorry
+          --             · sorry
+          --           · sorry
+          --           · sorry
+          --         · sorry
+          --       · sorry
+          --     · sorry
+          -- · rename_i heq
+          --   simp [List.nthMember] at heq
         | succ n ih =>
 
           sorry

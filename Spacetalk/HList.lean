@@ -19,6 +19,13 @@ inductive Member {α : Type u} : α → List α → Type u
   | head : Member a (a::as)
   | tail : Member a bs → Member a (b::bs)
 
+def Member.toIndex : Member a as → Nat
+  | head => 0
+  | tail m => 1 + m.toIndex
+
+def Member.compare (m1 : Member a as) (m2 : Member b bs) : Bool :=
+  m1.toIndex == m2.toIndex
+
 def Member.beq : Member a as → Member a as → Bool
   | .head, .head => true
   | .tail x, .tail y => Member.beq x y
