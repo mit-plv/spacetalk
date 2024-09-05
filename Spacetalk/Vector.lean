@@ -12,7 +12,7 @@ theorem Vector.toList_get {v : Vector α n} {i : Fin n} : v.get i = v.toList.get
   cases v; simp [Vector.get]
 
 theorem Vector.get_append_right {xs : Vector α n} {ys : Vector α m} {i : Fin m}
-  : (xs.append ys).get ⟨i + n, by have := i.isLt; linarith⟩ = ys.get i :=
+  : (xs.append ys).get ⟨i + n, by omega⟩ = ys.get i :=
   match xs, ys with
   | ⟨xsl, xeq⟩, ⟨ysl, yeq⟩ => by
     simp [Vector.get]
@@ -20,7 +20,6 @@ theorem Vector.get_append_right {xs : Vector α n} {ys : Vector α m} {i : Fin m
     rw [xeq] at this
     simp at this
     apply this
-    have ilt := i.isLt
-    linarith
+    omega
     rw [yeq]
     exact i.isLt

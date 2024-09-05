@@ -4,11 +4,30 @@ namespace SimpleDataflow
 
 inductive Prim
   | bitVec : Nat → Prim
-deriving DecidableEq
+
+@[simp]
+def Prim.decEq (a : Prim) (b : Prim) : Decidable (a = b) :=
+  match a, b with
+  | .bitVec a, .bitVec b =>
+    if h : a = b then
+      isTrue (h ▸ rfl)
+    else
+      isFalse (λ heq => h ((bitVec.injEq a b).mp heq))
+
+instance : DecidableEq Prim := Prim.decEq
 
 inductive Ty
   | option : Prim → Ty
-deriving DecidableEq
+
+def Ty.decEq (a : Ty) (b : Ty) : Decidable (a = b) :=
+  match a, b with
+  | .option a, .option b =>
+    if h : a = b then
+      isTrue (h ▸ rfl)
+    else
+      isFalse (λ heq => h ((option.injEq a b).mp heq))
+
+instance : DecidableEq Ty := Ty.decEq
 
 @[reducible]
 def Prim.toTy (p :Prim) : Ty :=
@@ -25,9 +44,11 @@ def Prim.default : (p : Prim) → p.denote
 def Ty.denote : Ty → Type
   | option p => Option p.denote
 
+@[simp]
 def Ty.default : (ty : Ty) → ty.denote
   | .option _ => none
 
+@[simp]
 def Ty.denoteBEq : (ty : Ty) → (ty.denote → ty.denote → Bool)
   | .option _ => λ a b =>
     match a, b with
@@ -35,6 +56,7 @@ def Ty.denoteBEq : (ty : Ty) → (ty.denote → ty.denote → Bool)
       | .none, .none => true
       | _, _ => false
 
+@[simp]
 def Ty.denoteDecEq : (ty : Ty) → DecidableEq ty.denote
   | .option _ => inferInstance
 
@@ -82,9 +104,13 @@ def BinaryOp.eval : BinaryOp α β γ → (α.denote → β.denote → γ.denote
   | umod => BitVec.umod
   | eq => λ a b => if a == b then ⟨1, by simp⟩ else ⟨0, by simp⟩
 
+example : ∀α x y (op : BinaryOp α α α), op.eval x y = op.eval x y := by
+  simp
+
 inductive UnaryOp : Prim → Prim → Type
   | identity : UnaryOp α α
 
+@[simp]
 def UnaryOp.eval : UnaryOp α β → (α.denote → β.denote)
   | identity => id
 
@@ -95,6 +121,7 @@ inductive Pipeline : (inputs : List Ty) → (outputs : List Ty) → Type
   | guard : {α : Ty} → Pipeline [BoolTy, α] [α]
   | mux : {α : Ty} → Pipeline [BoolTy, α, α] [α]
 
+@[simp]
 def Pipeline.eval : Pipeline α β → (DenoList α → DenoList β)
   | const a => Function.const _ [a]ₕ
   | unaryOp op => λ ([a]ₕ) => [a.map op.eval]ₕ
@@ -114,12 +141,12 @@ def Pipeline.eval : Pipeline α β → (DenoList α → DenoList β)
         b
     [res]ₕ
 
-def Ops (inputs outputs state : List Ty) :=
+abbrev Ops (inputs outputs state : List Ty) :=
   Pipeline (inputs ++ state) (outputs ++ state)
 
 instance : NodeOps Ops where
   eval := λ pipeline inputs state => (pipeline.eval (inputs ++ₕ state)).split
 
-def DataflowMachine := DataflowGraph Ty Ops
+abbrev DataflowMachine := DataflowGraph Ty Ops
 
 end SimpleDataflow

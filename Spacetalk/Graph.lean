@@ -38,6 +38,7 @@ def DenoStreamsList.map {τ' : Type} [DecidableEq τ'] [Denote τ']
 /-- Lean denotation of a steram of list of type τ where τ implements Denote -/
 abbrev DenoListsStream (ts : List τ) := Stream' (DenoList ts)
 
+@[simp]
 def DenoStreamsList.split {as : List τ} {bs : List τ}
   (dsl : DenoStreamsList (as ++ bs)) : DenoStreamsList as × DenoStreamsList bs :=
   match as with
@@ -182,18 +183,22 @@ variable {nodes : NodeList τ F numNodes}
     intro h
     cases h_match : fifo <;> repeat (first | simp [FIFO.isOutput] | simp [h_match] at h)
 
+  @[simp]
   def producer {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → fifo.isInput = false → Fin numNodes
     | .initialized f, _ | .advancing f, _ | .output f, _ => f.producer
 
+  @[simp]
   def producerPort {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → (h : fifo.isInput = false) → Member fifo.t (nodes.get (fifo.producer h)).outputs
     | .initialized f, _ | .advancing f, _ | .output f, _ => f.producerPort
 
+  @[simp]
   def consumer {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → fifo.isOutput = false → Fin numNodes
     | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumer
 
+  @[simp]
   def consumerPort {inputs outputs : List τ}
     : (fifo : FIFO inputs outputs nodes) → (h : fifo.isOutput = false) → Member fifo.t (nodes.get (fifo.consumer h)).inputs
     | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumerPort
@@ -235,10 +240,11 @@ end Node
 
 namespace DataflowGraph
 
-  def FIFOType (dfg : DataflowGraph τ F) := FIFO dfg.inputs dfg.outputs dfg.nodes
+  -- abbrev FIFOType (dfg : DataflowGraph τ F) := FIFO dfg.inputs dfg.outputs dfg.nodes
 
+  @[simp]
   def isNodeInput {dfg : DataflowGraph τ F} {nid : Fin dfg.numNodes} {t : τ}
-    (port : Member t (dfg.nodes.get nid).inputs) (fifo : dfg.FIFOType) : Bool :=
+    (port : Member t (dfg.nodes.get nid).inputs) (fifo : FIFO dfg.inputs dfg.outputs dfg.nodes) : Bool :=
     match fifo with
       | .input fifo' | .initialized fifo' | .advancing fifo' =>
         if h : fifo'.consumer = nid ∧ fifo'.t = t then
@@ -247,8 +253,9 @@ namespace DataflowGraph
           false
       | _ => false
 
+  @[simp]
   def isGlobalOutput {dfg : DataflowGraph τ F} {t : τ}
-    (output : Member t dfg.outputs) (fifo : dfg.FIFOType) : Bool :=
+    (output : Member t dfg.outputs) (fifo : FIFO dfg.inputs dfg.outputs dfg.nodes) : Bool :=
     match fifo with
       | .output fifo' =>
         if fifo'.t = t then
@@ -258,12 +265,16 @@ namespace DataflowGraph
           false
       | _ => false
 
-  def stateMap (dfg : DataflowGraph τ F) :=
+  @[simp]
+  def findGlobalOutput (dfg : DataflowGraph τ F) (output : Member t dfg.outputs) : Option (FIFO dfg.inputs dfg.outputs dfg.nodes) :=
+    dfg.fifos.find? (isGlobalOutput output)
+
+  abbrev stateMap (dfg : DataflowGraph τ F) :=
     (nid : Fin dfg.numNodes) → (DenoList (dfg.nodes.get nid).outputs) × (DenoList (dfg.nodes.get nid).state)
 
   theorem node_input_fifo_ty_eq {dfg : DataflowGraph τ F}
     {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
-    {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : dfg.FIFOType}
+    {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : FIFO dfg.inputs dfg.outputs dfg.nodes}
     (h_is_node_input : dfg.isNodeInput port fifo = true) : fifo.t = (dfg.nodes.get nid).inputs.get fin := by
     cases h_fm : fifo <;> simp [h_fm, isNodeInput] at h_is_node_input <;>
     (
@@ -296,7 +307,7 @@ namespace DataflowGraph
     exact fifo.adv
 
   theorem global_output_ty_eq {dfg : DataflowGraph τ F}
-    {fin : Fin dfg.outputs.length} {fifo : dfg.FIFOType}
+    {fin : Fin dfg.outputs.length} {fifo : FIFO dfg.inputs dfg.outputs dfg.nodes}
     (h_is_output : isGlobalOutput (dfg.outputs.nthMember fin) fifo = true) : fifo.t = dfg.outputs.get fin := by
     cases h_fm : fifo <;> simp [h_fm, isGlobalOutput] at h_is_output
     exact h_is_output.left
@@ -337,36 +348,7 @@ namespace DataflowGraph
       (NodeOps.eval node.ops) nodeInputs currState
     termination_by n nid => (n, dfg.numNodes - nid)
 
-  #check nthCycleState.eq_def
-
-  theorem nthCycleState_zero {dfg : DataflowGraph τ F} {inputs : DenoListsStream dfg.inputs}
-    : dfg.nthCycleState inputs 0 = (
-      λ nid =>
-      let node := dfg.nodes.get nid
-      let inputsFinRange := List.finRange node.inputs.length
-      have finRange_map_eq : inputsFinRange.map node.inputs.get = node.inputs := List.finRange_map_get node.inputs
-      let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get (
-        λ fin =>
-          let port := node.inputs.nthMember fin
-          let fifoOpt := dfg.fifos.find? (dfg.isNodeInput port)
-          match h_match_opt : fifoOpt with
-            | .some fifo =>
-              have h_is_node_input : dfg.isNodeInput port fifo = true := List.find?_some h_match_opt
-              have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq (h_is_node_input)
-              match fifo with
-                | .input fifo' => h_ty_eq ▸ (inputs 0).get fifo'.producer
-                | .advancing fifo' =>
-                  let producerOutputs := (dfg.nthCycleState inputs 0 fifo'.producer).fst
-                  h_ty_eq ▸ producerOutputs.get fifo'.producerPort
-                | .initialized fifo' => h_ty_eq ▸ fifo'.initialValue
-            | .none =>
-              Denote.default (node.inputs.get fin)
-      )
-      let currState : DenoList node.state := node.initialState
-      (NodeOps.eval node.ops) nodeInputs currState
-    ) := by
-    sorry
-
+  @[simp]
   def denote (dfg : DataflowGraph τ F)
     (inputs : DenoStreamsList dfg.inputs) : DenoStreamsList (dfg.outputs) :=
     let packedInputs := inputs.pack
@@ -378,7 +360,7 @@ namespace DataflowGraph
         finRange_map_eq ▸ outputsFinRange.toHList dfg.outputs.get (
           λ fin =>
             let outputMem := dfg.outputs.nthMember fin
-            let fifoOpt := dfg.fifos.find? (isGlobalOutput outputMem)
+            let fifoOpt := dfg.findGlobalOutput outputMem
             match h_some : fifoOpt with
               | .some fifo =>
                 have h_is_output : isGlobalOutput outputMem fifo = true := List.find?_some h_some
@@ -394,56 +376,3 @@ namespace DataflowGraph
 end DataflowGraph
 
 end
-
--- def graph_walk (ptrs : List Nat) (lt : ∀ i, ptrs.get i < ptrs.length)
---     (h : ∀ i, (isLt : i < ptrs.length) → i < ptrs.get ⟨i, isLt⟩) : Fin ptrs.length -> Nat :=
---   λ idx =>
---     let next := ptrs.get idx
---     match hm : next with
---     | 0 => 0
---     | i =>
---       have isLt : i < ptrs.length := by rw [←hm]; exact lt idx
---       have : i < idx := by
---         have := h i isLt
-
---       graph_walk ptrs lt h ⟨i, isLt⟩
---   termination_by i => i
-
-inductive EdgeType {n : Nat} (self target : Fin n) where
-  | forward : target < self → EdgeType self target
-  | initialized : (value : Nat) -> EdgeType self target
-
-structure Edge (n : Nat) where
-  self : Fin n
-  target : Fin n
-  type : EdgeType self target
-
-def graphTraversal {n : Nat} (nodes : Vector Nat n) (edges : List (Edge n)) (acc : Nat) : Nat → Fin n → Nat :=
-  λ iter start =>
-    match hm : edges.find? (·.self = start) with
-    | .some edge =>
-      match edge.type with
-      | .forward h =>
-        have h_decide := List.find?_some hm
-        have h_eq := of_decide_eq_true h_decide
-        have decreasing : edge.target < start := h_eq ▸ h
-        graphTraversal nodes edges acc iter edge.target
-      | .initialized v =>
-        match iter with
-        | 0 => acc + v
-        | n' + 1 => graphTraversal nodes edges (acc + v) n' edge.target
-    | none => 0
-
-theorem graphTraversal_zero {n : Nat} (nodes : Vector Nat n) (edges : List (Edge n))
-  : graphTraversal nodes edges acc 0 =
-  (
-    λ start =>
-      match edges.find? (·.self = start) with
-      | .some edge =>
-        match edge.type with
-        | .forward _ => graphTraversal nodes edges acc 0 edge.target
-        | .initialized v => acc + v
-      | none => 0
-  ) := by
-  rw [graphTraversal.eq_def]
-  sorry
