@@ -8,13 +8,14 @@ import Spacetalk.HList
 open Mathlib
 
 -- Bit rep?
-class Denote (τ : Type) [DecidableEq τ] where
+class Denote (τ : Type) [BEq τ] [LawfulBEq τ] where
   denote : τ → Type
   default : (t : τ) → denote t
 
 section
 variable {τ : Type}
-variable [DecidableEq τ]
+variable [BEq τ]
+variable [LawfulBEq τ]
 variable [Denote τ]
 
 /-- Lean denotation of a (List τ) where τ implements Denote -/
@@ -29,7 +30,7 @@ def DenoStreamsList.Forall {ts : List τ} (dsl : DenoStreamsList ts) (p : {t : �
     | [], []ₕ => True
     | _::_, x ::ₕ t => p x ∧ Forall t p
 
-def DenoStreamsList.map {τ' : Type} [DecidableEq τ'] [Denote τ']
+def DenoStreamsList.map {τ' : Type} [BEq τ'] [LawfulBEq τ'] [Denote τ']
   (f : τ → τ') (g : {t : τ} → Denote.denote t → Denote.denote (f t)) :
   {ts : List τ} → DenoStreamsList ts → DenoStreamsList (ts.map f)
   | [], []ₕ => []ₕ
@@ -85,21 +86,15 @@ theorem DenoListsStream_unpack_pack_eq {ts : List τ} {dls : DenoListsStream ts}
   apply funext
   intro n
   induction ts
-  case nil => simp; cases dls n; rfl
+  case nil =>
+    cases dls n
+    rfl
   case cons h t ih =>
-    simp
     cases hm : dls n with
     | cons hh tt =>
-      apply (HList.cons.injEq _ _ _ _).mpr
-      apply And.intro
-      · simp
-      · have : tt = (match dls · with | _ ::ₕ rest => rest) n := by
-          simp
-          rw [hm]
-        rw [this]
-        exact ih
+      aesop
 
-abbrev NodeType (τ : Type) [DecidableEq τ][Denote τ] :=
+abbrev NodeType (τ : Type) [BEq τ] [LawfulBEq τ] [Denote τ] :=
   (inputs : List τ) → (outputs : List τ) → (state : List τ) → Type
 
 class NodeOps (F : NodeType τ) where
@@ -108,14 +103,14 @@ class NodeOps (F : NodeType τ) where
 variable {F : NodeType τ}
 variable [NodeOps F]
 
-structure Node (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] where
+structure Node (τ : Type) [BEq τ] [LawfulBEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] where
   inputs : List τ
   outputs : List τ
   state : List τ
   initialState : DenoList state
   ops : F inputs outputs state
 
-def NodeList (τ : Type) [DecidableEq τ][Denote τ] (F : NodeType τ) [NodeOps F] (numNodes : Nat) :=
+def NodeList (τ : Type) [BEq τ] [LawfulBEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] (numNodes : Nat) :=
   Vector (Node τ F) numNodes
 
 structure InputFIFO (inputs : List τ) (nodes : NodeList τ F numNodes) where
@@ -152,7 +147,6 @@ inductive FIFO (inputs outputs : List τ) (nodes : NodeList τ F numNodes)
   | output : OutputFIFO outputs nodes → FIFO inputs outputs nodes
   | advancing : AdvancingFIFO nodes → FIFO inputs outputs nodes
   | initialized : InitializedFIFO nodes → FIFO inputs outputs nodes
-
 
 namespace FIFO
 section
@@ -227,7 +221,7 @@ variable {nodes : NodeList τ F numNodes}
 end
 end FIFO
 
-structure DataflowGraph (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] where
+structure DataflowGraph (τ : Type) [BEq τ] [LawfulBEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] where
   inputs : List τ
   outputs : List τ
   numNodes : Nat
@@ -240,34 +234,25 @@ end Node
 
 namespace DataflowGraph
 
-  -- abbrev FIFOType (dfg : DataflowGraph τ F) := FIFO dfg.inputs dfg.outputs dfg.nodes
+  abbrev FIFOType (dfg : DataflowGraph τ F) := FIFO dfg.inputs dfg.outputs dfg.nodes
 
   @[simp]
   def isNodeInput {dfg : DataflowGraph τ F} {nid : Fin dfg.numNodes} {t : τ}
-    (port : Member t (dfg.nodes.get nid).inputs) (fifo : FIFO dfg.inputs dfg.outputs dfg.nodes) : Bool :=
+    (port : Member t (dfg.nodes.get nid).inputs) (fifo : dfg.FIFOType) : Bool :=
     match fifo with
       | .input fifo' | .initialized fifo' | .advancing fifo' =>
-        if h : fifo'.consumer = nid ∧ fifo'.t = t then
-          h.left ▸ h.right ▸ fifo'.consumerPort = port
-        else
-          false
+        fifo'.t == t && fifo'.consumer == nid && fifo'.consumerPort.compare port
       | _ => false
 
   @[simp]
-  def isGlobalOutput {dfg : DataflowGraph τ F} {t : τ}
-    (output : Member t dfg.outputs) (fifo : FIFO dfg.inputs dfg.outputs dfg.nodes) : Bool :=
-    match fifo with
-      | .output fifo' =>
-        if fifo'.t = t then
-          -- h ▸ fifo'.consumer = output
-          fifo'.consumer.compare output
-        else
-          false
-      | _ => false
-
-  @[simp]
-  def findGlobalOutput (dfg : DataflowGraph τ F) (output : Member t dfg.outputs) : Option (FIFO dfg.inputs dfg.outputs dfg.nodes) :=
-    dfg.fifos.find? (isGlobalOutput output)
+  def findGlobalOutput (dfg : DataflowGraph τ F) (output : Member t dfg.outputs)
+    : Option {fifo : OutputFIFO dfg.outputs dfg.nodes // fifo.t == t} :=
+    let outputs := dfg.fifos.filterMap FIFO.getOutput
+    let fifo := outputs.find? (λ fifo => fifo.t == t && fifo.consumer.compare output)
+    match h : fifo with
+    | some f =>
+        some ⟨f, by have := List.find?_some h; exact Bool.and_elim_left this⟩
+    | none => none
 
   abbrev stateMap (dfg : DataflowGraph τ F) :=
     (nid : Fin dfg.numNodes) → (DenoList (dfg.nodes.get nid).outputs) × (DenoList (dfg.nodes.get nid).state)
@@ -279,14 +264,7 @@ namespace DataflowGraph
     cases h_fm : fifo <;> simp [h_fm, isNodeInput] at h_is_node_input <;>
     (
       rename_i fifo'
-      have p : fifo'.consumer = nid ∧ fifo'.t = (dfg.nodes.get nid).inputs.get fin := by
-        apply (dite_eq_iff.mp h_is_node_input).elim
-        · intro e
-          exact e.fst
-        · intro e
-          have := e.snd
-          contradiction
-      exact p.right
+      exact h_is_node_input.left.left
     )
 
   theorem advancing_fifo_lt {dfg : DataflowGraph τ F}
@@ -295,22 +273,9 @@ namespace DataflowGraph
     (h_is_node_input : dfg.isNodeInput port (.advancing fifo) = true) : nid < fifo.producer := by
     have : fifo.consumer = nid := by
       simp [isNodeInput] at h_is_node_input
-      have p : fifo.consumer = nid ∧ fifo.t = (dfg.nodes.get nid).inputs.get fin := by
-        apply (dite_eq_iff.mp h_is_node_input).elim
-        · intro e
-          exact e.fst
-        · intro e
-          have := e.snd
-          contradiction
-      exact p.left
+      exact h_is_node_input.left.right
     rw [←this]
     exact fifo.adv
-
-  theorem global_output_ty_eq {dfg : DataflowGraph τ F}
-    {fin : Fin dfg.outputs.length} {fifo : FIFO dfg.inputs dfg.outputs dfg.nodes}
-    (h_is_output : isGlobalOutput (dfg.outputs.nthMember fin) fifo = true) : fifo.t = dfg.outputs.get fin := by
-    cases h_fm : fifo <;> simp [h_fm, isGlobalOutput] at h_is_output
-    exact h_is_output.left
 
   def nthCycleState (dfg : DataflowGraph τ F) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
     λ n nid =>
@@ -359,15 +324,14 @@ namespace DataflowGraph
       λ n =>
         finRange_map_eq ▸ outputsFinRange.toHList dfg.outputs.get (
           λ fin =>
-            let outputMem := dfg.outputs.nthMember fin
-            let fifoOpt := dfg.findGlobalOutput outputMem
-            match h_some : fifoOpt with
-              | .some fifo =>
-                have h_is_output : isGlobalOutput outputMem fifo = true := List.find?_some h_some
-                have h_ty_eq : fifo.t = dfg.outputs.get fin := global_output_ty_eq h_is_output
-                match fifo with
-                  | .output fifo' =>
-                    h_ty_eq ▸ (stateStream n fifo'.producer).fst.get fifo'.producerPort
+            let outputMem : Member (dfg.outputs.get fin) dfg.outputs := dfg.outputs.nthMember fin
+            let fifoOpt : Option {fifo : OutputFIFO dfg.outputs dfg.nodes // fifo.t == dfg.outputs.get fin} :=
+              dfg.findGlobalOutput outputMem
+            match fifoOpt with
+              | .some ⟨fifo, h⟩ =>
+                let outputs : DenoList (dfg.nodes.get fifo.producer).outputs := (stateStream n fifo.producer).fst
+                let output : Denote.denote fifo.t := outputs.get fifo.producerPort
+                (eq_of_beq h) ▸ output
               | .none =>
                 Denote.default (dfg.outputs.get fin)
         )
