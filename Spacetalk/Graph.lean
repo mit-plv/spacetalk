@@ -245,6 +245,15 @@ namespace DataflowGraph
       | _ => false
 
   @[simp]
+  def findNodeInput {dfg : DataflowGraph τ F} {nid : Fin dfg.numNodes} {t : τ}
+    (port : Member t (dfg.nodes.get nid).inputs) : Option {fifo : dfg.FIFOType // dfg.isNodeInput port fifo = true} :=
+    let fifo := dfg.fifos.find? (isNodeInput port)
+    match h : fifo with
+    | some f =>
+      some ⟨f, List.find?_some h⟩
+    | none => none
+
+  @[simp]
   def findGlobalOutput (dfg : DataflowGraph τ F) (output : Member t dfg.outputs)
     : Option {fifo : OutputFIFO dfg.outputs dfg.nodes // fifo.t == t} :=
     let outputs := dfg.fifos.filterMap FIFO.getOutput
@@ -285,16 +294,15 @@ namespace DataflowGraph
       let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get (
         λ fin =>
           let port := node.inputs.nthMember fin
-          let fifoOpt := dfg.fifos.find? (dfg.isNodeInput port)
-          match h_match_opt : fifoOpt with
-            | .some fifo =>
-              have h_is_node_input : dfg.isNodeInput port fifo = true := List.find?_some h_match_opt
-              have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq (h_is_node_input)
+          let fifoOpt := findNodeInput (port)
+          match fifoOpt with
+            | .some ⟨fifo, h⟩ =>
+              have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq h
               match fifo with
                 | .input fifo' =>
                   h_ty_eq ▸ (inputs n).get fifo'.producer
                 | .advancing fifo' =>
-                  have := advancing_fifo_lt h_is_node_input
+                  have := advancing_fifo_lt h
                   let producerOutputs := (dfg.nthCycleState inputs n fifo'.producer).fst
                   h_ty_eq ▸ producerOutputs.get fifo'.producerPort
                 | .initialized fifo' =>

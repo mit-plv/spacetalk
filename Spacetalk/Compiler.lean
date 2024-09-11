@@ -3,6 +3,7 @@ import Spacetalk.Step
 import Spacetalk.Graph
 import Spacetalk.Vector
 import Spacetalk.Inequalities
+-- import Smt
 
 open Mathlib
 
@@ -350,6 +351,11 @@ theorem const_graph_output_eq {α : Step.Ty} :
     = some ⟨⟨α.toSDF, ⟨0, by simp⟩, .head, .head⟩, by simp⟩ := by
   aesop
 
+theorem const_graph_input_eq {α : Step.Ty} :
+  DataflowGraph.findNodeInput (dfg := (@Step.Prog.const α).compile.g) (nid := ⟨0, by simp⟩) Member.head
+    = some ⟨.input ⟨α.toSDF, .head, ⟨0, by simp⟩, .head⟩, by simp⟩ := by
+  aesop
+
 theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.toSDF [α])}
   (all_somes : inputs_all_somes inputs)
   : (getOutput .const inputs) i = (inputs.get .head) i := by
@@ -363,9 +369,21 @@ theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.
   case zero =>
     rw [DataflowGraph.nthCycleState]
     cases inputs
-    simp [NodeOps.eval, Vector.get, Vector.cons]
-
+    simp only [NodeOps.eval, Vector.get, Vector.cons]
+    simp_all only [List.map_cons, Step.Ty.toSDF, List.map_nil, HList.get, HList.head, SimpleDataflow.Pipeline.eval,
+      Step.Prog.compile, constStreamGraph, Fin.isValue, Nat.zero_eq, Fin.zero_eta, Fin.cast_eq_self,
+      List.get_eq_getElem, Fin.val_zero, SimpleDataflow.UnaryOp.eval, Option.pure_def, Option.bind_eq_bind,
+      Function.const_apply, beq_iff_eq, HList.append, List.pmap.eq_1, List.append_eq, List.nil_append,
+      DataflowGraph.findNodeInput, List.nthMember, List.length_singleton, List.getElem_cons_zero,
+      DataflowGraph.isNodeInput, FIFO.t, DataflowGraph.isNodeInput.eq_1, FIFO.t.eq_1, DenoStreamsList.pack,
+      DataflowGraph.isNodeInput.eq_3, FIFO.t.eq_3, DataflowGraph.isNodeInput.eq_2, FIFO.t.eq_4, List.find?]
+    split
+    rename_i x h a_2 heq
+    simp_all [BEq.beq, decide]
     sorry
+    -- simp only [const_graph_input_eq]
+    -- simp [DataflowGraph.findNodeInput, List.find?]
+    -- sorry
   case succ n ih =>
 
     sorry
