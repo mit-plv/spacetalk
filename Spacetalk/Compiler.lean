@@ -353,50 +353,51 @@ theorem const_graph_output_eq {α : Step.Ty} :
 
 theorem const_graph_input_eq {α : Step.Ty} :
   DataflowGraph.findNodeInput (dfg := (@Step.Prog.const α).compile.g) (nid := ⟨0, by simp⟩) Member.head
-    = some ⟨.input ⟨α.toSDF, .head, ⟨0, by simp⟩, .head⟩, by simp⟩ := by
+    = some (.input ⟨α.toSDF, .head, ⟨0, by simp⟩, .head⟩) := by
   aesop
+
+set_option pp.proofs true
 
 theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.toSDF [α])}
   (all_somes : inputs_all_somes inputs)
   : (getOutput .const inputs) i = (inputs.get .head) i := by
-  simp only [getOutput, HList.head]
-  simp only [DataflowGraph.denote]
-  simp only [DenoListsStream.unpack,
-             List.toHList, List.nthMember, HList.get]
-  simp only [Denote.default, SimpleDataflow.Ty.default]
-  simp only [const_graph_output_eq]
-  induction i
-  case zero =>
-    rw [DataflowGraph.nthCycleState]
-    cases inputs
-    simp only [NodeOps.eval, Vector.get, Vector.cons]
-    simp_all only [List.map_cons, Step.Ty.toSDF, List.map_nil, HList.get, HList.head, SimpleDataflow.Pipeline.eval,
-      Step.Prog.compile, constStreamGraph, Fin.isValue, Nat.zero_eq, Fin.zero_eta, Fin.cast_eq_self,
-      List.get_eq_getElem, Fin.val_zero, SimpleDataflow.UnaryOp.eval, Option.pure_def, Option.bind_eq_bind,
-      Function.const_apply, beq_iff_eq, HList.append, List.pmap.eq_1, List.append_eq, List.nil_append,
-      DataflowGraph.findNodeInput, List.nthMember, List.length_singleton, List.getElem_cons_zero,
-      DataflowGraph.isNodeInput, FIFO.t, DataflowGraph.isNodeInput.eq_1, FIFO.t.eq_1, DenoStreamsList.pack,
-      DataflowGraph.isNodeInput.eq_3, FIFO.t.eq_3, DataflowGraph.isNodeInput.eq_2, FIFO.t.eq_4, List.find?]
-    split
-    rename_i x h a_2 heq
-    simp_all [BEq.beq, decide]
-    sorry
-    -- simp only [const_graph_input_eq]
-    -- simp [DataflowGraph.findNodeInput, List.find?]
-    -- sorry
-  case succ n ih =>
-
-    sorry
-
-theorem const_all_somes {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.toSDF [α])}
-  (all_somes : inputs_all_somes inputs)
-  : Option.isSome (getOutput .const inputs i) = true := by
-  rw [const_output_eq all_somes]
+  simp only [getOutput, HList.head, DataflowGraph.denote, DenoListsStream.unpack,
+             List.toHList, HList.get]
+  have h_node_outputs : ((@Step.Prog.const α).compile.g.nodes.get ⟨0, by simp⟩).outputs = [α.toSDF] := by simp
+  have h_outputs : (@Step.Prog.const α).compile.g.outputs = [α.toSDF] := by simp
+  have heq : DataflowGraph.findGlobalOutput Step.Prog.const.compile.g (Step.Prog.const.compile.g.outputs.nthMember ⟨0, by simp⟩)
+    = some ⟨⟨α.toSDF, ⟨0, by simp⟩, h_node_outputs ▸ Member.head, h_outputs ▸ Member.head⟩, by simp⟩ := by
+    aesop
+  rw [heq]
+  simp only
+  rw [DataflowGraph.nthCycleState.eq_def]
   cases inputs
-  simp [all_somes.left i]
+  simp only [List.toHList]
+  split
+  next fifo heq =>
+    have heq_1 : DataflowGraph.findNodeInput (((@Step.Prog.const α).compile.g.nodes.get ⟨0, by simp⟩).inputs.nthMember ⟨0, by simp⟩)
+      = some (.input ⟨α.toSDF, .head, ⟨0, by simp⟩, .head⟩) := by simp
+    rw [heq_1] at heq
+    simp at heq
+    -- simp only [DataflowGraph.nthCycleState.proof_2]
+    -- simp_rw [←heq]
+    sorry
+  next heq =>
+    simp at heq
 
 def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.throughPut
-  | const => ⟨1, λ inputs all_somes i => Iff.intro (λ _ => Nat.mod_one i) (λ _ => const_all_somes all_somes)⟩
+  | const =>
+    ⟨
+      1,
+      by
+        intro inputs all_somes i
+        apply Iff.intro
+        · intro
+          exact Nat.mod_one i
+        · rw [const_output_eq all_somes]
+          cases inputs
+          simp [all_somes.left i]
+    ⟩
   | zip op x y => sorry
   | map op x => sorry
   | reduce op n a x => sorry
