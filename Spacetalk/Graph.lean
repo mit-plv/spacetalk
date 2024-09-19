@@ -47,47 +47,140 @@ structure Node (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeO
 def NodeList (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] (numNodes : Nat) :=
   Vector (Node τ F) numNodes
 
-structure InputFIFO (inputs : List τ) (nodes : NodeList τ F numNodes) where
-  t : τ
-  producer : Member t inputs
-  consumer : Fin numNodes
-  consumerPort: Member t (nodes.get consumer).inputs
+structure InputFIFO where
+  producer : Nat
+  consumer : Nat
+  consumerPort: Nat
 
-structure OutputFIFO (outputs : List τ) (nodes : NodeList τ F numNodes) where
-  t : τ
-  producer : Fin numNodes
-  producerPort: Member t (nodes.get producer).outputs
-  consumer : Member t outputs
+structure OutputFIFO where
+  producer : Nat
+  producerPort: Nat
+  consumer : Nat
 
-structure AdvancingFIFO (nodes : NodeList τ F numNodes) where
-  t : τ
-  producer : Fin numNodes
-  consumer : Fin numNodes
-  producerPort: Member t (nodes.get producer).outputs
-  consumerPort: Member t (nodes.get consumer).inputs
+structure AdvancingFIFO where
+  producer : Nat
+  consumer : Nat
+  producerPort: Nat
+  consumerPort: Nat
   /-- We put consumers earlier in the nodes list because `Vector.cons` puts new nodes in the front. -/
   adv : producer > consumer
 
-structure InitializedFIFO (nodes : NodeList τ F numNodes) where
-  t : τ
-  initialValue : Denote.denote t
-  producer : Fin numNodes
-  consumer : Fin numNodes
-  producerPort: Member t (nodes.get producer).outputs
-  consumerPort: Member t (nodes.get consumer).inputs
+structure InitializedFIFO where
+  initialValue : α
+  producer : Nat
+  consumer : Nat
+  producerPort: Nat
+  consumerPort: Nat
 
-inductive FIFO (inputs outputs : List τ) (nodes : NodeList τ F numNodes)
-  | input : InputFIFO inputs nodes → FIFO inputs outputs nodes
-  | output : OutputFIFO outputs nodes → FIFO inputs outputs nodes
-  | advancing : AdvancingFIFO nodes → FIFO inputs outputs nodes
-  | initialized : InitializedFIFO nodes → FIFO inputs outputs nodes
+inductive FIFO
+  | input : InputFIFO → FIFO
+  | output : OutputFIFO → FIFO
+  | advancing : AdvancingFIFO → FIFO
+  | initialized : InitializedFIFO → FIFO
+
+namespace FIFO
+  @[simp]
+  def isInput : FIFO → Bool
+    | .input _ => true
+    | _ => false
+
+  @[simp]
+  def isOutput : FIFO → Bool
+    | .output _ => true
+    | _ => false
+
+  theorem outputNotInput {fifo : FIFO}
+    : fifo.isOutput = true → fifo.isInput = false := by
+    intro h
+    cases h_match : fifo <;> repeat (first | simp | simp [h_match, FIFO.isOutput] at h)
+
+  theorem inputNotOutput {fifo : FIFO}
+    : fifo.isInput = true → fifo.isOutput = false := by
+    intro h
+    cases h_match : fifo <;> repeat (first | simp [FIFO.isOutput] | simp [h_match] at h)
+
+  @[simp]
+  def producer : (fifo : FIFO) → fifo.isInput = false → Nat
+    | .initialized f, _ | .advancing f, _ | .output f, _ => f.producer
+
+  @[simp]
+  def producerPort : (fifo : FIFO) → fifo.isInput = false → Nat
+    | .initialized f, _ | .advancing f, _ | .output f, _ => f.producerPort
+
+  @[simp]
+  def consumer : (fifo : FIFO) → fifo.isOutput = false → Nat
+    | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumer
+
+  @[simp]
+  def consumerPort : (fifo : FIFO) → fifo.isOutput = false → Nat
+    | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumerPort
+
+  @[simp]
+  def getInput : FIFO → Option InputFIFO
+    | input f => some f
+    | _ => none
+
+  @[simp]
+  def getInputs (fifos : List FIFO) : List InputFIFO :=
+    fifos.filterMap getInput
+
+  @[simp]
+  def getOutput : FIFO → Option OutputFIFO
+    | output f => some f
+    | _ => none
+
+  @[simp]
+  def getOutputs (fifos : List FIFO) : List OutputFIFO :=
+    fifos.filterMap getOutput
+
+  @[simp]
+  def isNodeInput (nid : Nat) (port : Nat) (fifo : FIFO) : Bool :=
+    match fifo with
+    | .input fifo' | .initialized fifo' | .advancing fifo' =>
+      fifo'.consumer = nid ∧ fifo'.consumerPort = port
+    | _ => false
+
+  @[simp]
+  def findNodeInput (fifos : List FIFO) (nid : Nat) (port : Nat) : Option FIFO :=
+    fifos.find? (isNodeInput nid port)
+
+  @[simp]
+  def findOutput (fifos : List FIFO) (output : Nat) : Option OutputFIFO :=
+    let outputs := fifos.filterMap FIFO.getOutput
+    outputs.find? (λ fifo => fifo.consumer = output)
+end FIFO
 
 structure DataflowGraph (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType τ) [NodeOps F] where
   inputs : List τ
   outputs : List τ
   numNodes : Nat
   nodes : NodeList τ F numNodes
-  fifos : List (FIFO inputs outputs nodes)
+  fifos : List FIFO
+
+def fifo_idx_valid (inputs outputs : List τ) (nodes : NodeList τ F numNodes) (fifos : List FIFO) : Prop :=
+  ∀ f ∈ fifos,
+    match f with
+    | .input f =>
+      f.producer < inputs.length
+        ∧ f.consumer < nodes.length
+    | .output f =>
+      f.consumer < nodes.length
+        ∧ f.consumer < outputs.length
+    | .advancing f =>
+      f.producer < nodes.length
+        ∧ f.consumer < nodes.length
+    | .initialized f =>
+      f.producer < nodes.length
+        ∧ f.consumer < nodes.length
+
+def fifos_fully_connected (nodes : NodeList τ F numNodes) (fifos : List FIFO) : Prop :=
+  ∀ (nid : Fin numNodes) (port : Fin (nodes.get nid).inputs.length),
+    (FIFO.findNodeInput fifos nid port).isSome = true
+      ∧ (FIFO.findNodeInput fifos nid port).map (FIFO.isNodeInput nid port) = true
+
+structure dfg_well_formed (dfg : DataflowGraph τ F) where
+  fifo_idx : fifo_idx_valid dfg.inputs dfg.outputs dfg.nodes dfg.fifos
+  fifos_fc : fifos_fully_connected dfg.nodes dfg.fifos
 
 ----------------------------------------------------------------------------------------------------
 
@@ -147,186 +240,112 @@ theorem DenoListsStream_unpack_pack_eq {ts : List τ} {dls : DenoListsStream ts}
   apply funext
   intro n
   induction ts <;> (cases hm : dls n; simp_all)
-namespace FIFO
-section
-variable {numNodes : Nat}
-variable {nodes : NodeList τ F numNodes}
-
-  @[simp]
-  def t {inputs outputs : List τ} : (fifo : FIFO inputs outputs nodes) → τ
-    | .input f | .output f | .advancing f | .initialized f => f.t
-
-  @[simp]
-  def isInput {inputs outputs : List τ} : (fifo : FIFO inputs outputs nodes) → Bool
-    | .input _ => true
-    | _ => false
-
-  @[simp]
-  def isOutput {inputs outputs : List τ} : (fifo : FIFO inputs outputs nodes) → Bool
-    | .output _ => true
-    | _ => false
-
-  theorem outputNotInput {inputs outputs : List τ} {fifo : FIFO inputs outputs nodes}
-    : fifo.isOutput = true → fifo.isInput = false := by
-    intro h
-    cases h_match : fifo <;> repeat (first | simp | simp [h_match, FIFO.isOutput] at h)
-
-  theorem inputNotOutput {inputs outputs : List τ} {fifo : FIFO inputs outputs nodes}
-    : fifo.isInput = true → fifo.isOutput = false := by
-    intro h
-    cases h_match : fifo <;> repeat (first | simp [FIFO.isOutput] | simp [h_match] at h)
-
-  @[simp]
-  def producer {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → fifo.isInput = false → Fin numNodes
-    | .initialized f, _ | .advancing f, _ | .output f, _ => f.producer
-
-  @[simp]
-  def producerPort {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → (h : fifo.isInput = false) → Member fifo.t (nodes.get (fifo.producer h)).outputs
-    | .initialized f, _ | .advancing f, _ | .output f, _ => f.producerPort
-
-  @[simp]
-  def consumer {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → fifo.isOutput = false → Fin numNodes
-    | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumer
-
-  @[simp]
-  def consumerPort {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → (h : fifo.isOutput = false) → Member fifo.t (nodes.get (fifo.consumer h)).inputs
-    | .initialized f, _ | .advancing f, _ | .input f, _ => f.consumerPort
-
-  @[simp]
-  def getInput {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → Option (InputFIFO inputs nodes)
-    | input f => some f
-    | _ => none
-
-  @[simp]
-  def getInputs {inputs outputs : List τ}
-    (fifos : List (FIFO inputs outputs nodes)) : List (InputFIFO inputs nodes) :=
-    fifos.filterMap getInput
-
-  @[simp]
-  def getOutput {inputs outputs : List τ}
-    : (fifo : FIFO inputs outputs nodes) → Option (OutputFIFO outputs nodes)
-    | output f => some f
-    | _ => none
-
-  @[simp]
-  def getOutputs {inputs outputs : List τ}
-    (fifos : List (FIFO inputs outputs nodes)) : List (OutputFIFO outputs nodes) :=
-    fifos.filterMap getOutput
-end
-end FIFO
 
 namespace DataflowGraph
-
-  abbrev FIFOType (dfg : DataflowGraph τ F) := FIFO dfg.inputs dfg.outputs dfg.nodes
-
-  @[simp]
-  def isNodeInput {dfg : DataflowGraph τ F} {nid : Fin dfg.numNodes} {t : τ}
-    (port : Member t (dfg.nodes.get nid).inputs) (fifo : dfg.FIFOType) : Bool :=
-    match fifo with
-    | .input fifo' | .initialized fifo' | .advancing fifo' =>
-      fifo'.t = t ∧ fifo'.consumer = nid ∧ fifo'.consumerPort.compare port
-    | _ => false
-
-  @[simp]
-  def findNodeInput {dfg : DataflowGraph τ F} {nid : Fin dfg.numNodes} {t : τ}
-    (port : Member t (dfg.nodes.get nid).inputs) : Option dfg.FIFOType :=
-    dfg.fifos.find? (isNodeInput port)
-
-  @[simp]
-  def findGlobalOutput (dfg : DataflowGraph τ F) (output : Member t dfg.outputs)
-    : Option {fifo : OutputFIFO dfg.outputs dfg.nodes // fifo.t = t} :=
-    let outputs := dfg.fifos.filterMap FIFO.getOutput
-    let fifo := outputs.find? (λ fifo => fifo.t = t ∧ fifo.consumer.compare output)
-    match h : fifo with
-    | some f =>
-        some ⟨f, by have := List.find?_some h; simp at this; exact this.left⟩
-    | none => none
 
   abbrev stateMap (dfg : DataflowGraph τ F) :=
     (nid : Fin dfg.numNodes) → (DenoList (dfg.nodes.get nid).outputs) × (DenoList (dfg.nodes.get nid).state)
 
-  theorem node_input_fifo_ty_eq {dfg : DataflowGraph τ F}
-    {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
-    {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : FIFO dfg.inputs dfg.outputs dfg.nodes}
-    (h_is_node_input : dfg.isNodeInput port fifo = true) : fifo.t = (dfg.nodes.get nid).inputs.get fin := by
-    cases h_fm : fifo <;> simp [h_fm, isNodeInput] at h_is_node_input <;>
-    (
-      rename_i fifo'
-      exact h_is_node_input.left
-    )
+  -- theorem node_input_fifo_ty_eq {dfg : DataflowGraph τ F} --   {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length} --   {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : FIFO dfg.inputs dfg.outputs dfg.nodes} --   (h_is_node_input : dfg.isNodeInput port fifo = true) : fifo.t = (dfg.nodes.get nid).inputs.get fin := by --   cases h_fm : fifo <;> simp [h_fm, isNodeInput] at h_is_node_input <;> --   (
+  --     rename_i fifo'
+  --     exact h_is_node_input.left
+  --   )
 
-  theorem advancing_fifo_lt {dfg : DataflowGraph τ F}
-    {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
-    {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : AdvancingFIFO dfg.nodes}
-    (h_is_node_input : dfg.isNodeInput port (.advancing fifo) = true) : nid < fifo.producer := by
-    have : fifo.consumer = nid := by
-      simp [isNodeInput] at h_is_node_input
-      exact h_is_node_input.right.left
-    rw [←this]
-    exact fifo.adv
+  -- theorem advancing_fifo_lt {dfg : DataflowGraph τ F}
+  --   {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
+  --   {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : AdvancingFIFO dfg.nodes}
+  --   (h_is_node_input : dfg.isNodeInput port (.advancing fifo) = true) : nid < fifo.producer := by
+  --   have : fifo.consumer = nid := by
+  --     simp [isNodeInput] at h_is_node_input
+  --     exact h_is_node_input.right.left
+  --   rw [←this]
+  --   exact fifo.adv
 
-  def nthCycleState (dfg : DataflowGraph τ F) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
+  def nthCycleState (dfg : DataflowGraph τ F) (wf : dfg_well_formed dfg) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
     λ n nid =>
       let node := dfg.nodes.get nid
       let inputsFinRange := List.finRange node.inputs.length
       have finRange_map_eq : inputsFinRange.map node.inputs.get = node.inputs := List.finRange_map_get node.inputs
       let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get (
-        λ fin =>
-          let port := node.inputs.nthMember fin
-          match h_match : findNodeInput port with
+        λ port =>
+          let fifo := FIFO.findNodeInput dfg.fifos nid port
+          have h_some : fifo.isSome = true := (wf.fifos_fc nid port).left
+          match fifo with
           | .some fifo =>
-            have h : isNodeInput port fifo = true := List.find?_some h_match
-            have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq h
+            have h : fifo.isNodeInput nid port = true := by
+             have := (wf.fifos_fc nid port).right
+             simp only [Option.map] at this
+             
             match fifo with
             | .input fifo' =>
-              h_ty_eq ▸ (inputs n).get fifo'.producer
+              -- (inputs n).getNth fifo'.producer
+              sorry
             | .advancing fifo' =>
-              have := advancing_fifo_lt h
-              let producerOutputs := (dfg.nthCycleState inputs n fifo'.producer).fst
-              h_ty_eq ▸ producerOutputs.get fifo'.producerPort
+              sorry
             | .initialized fifo' =>
-              match n with
-              | 0 => h_ty_eq ▸ fifo'.initialValue
-              | n' + 1 =>
-                let producerOutputs := (dfg.nthCycleState inputs n' fifo'.producer).fst
-                h_ty_eq ▸ producerOutputs.get fifo'.producerPort
-          | .none =>
-            Denote.default (node.inputs.get fin)
+              sorry
       )
       let currState : DenoList node.state :=
         match n with
         | 0 => node.initialState
-        | n' + 1 => (dfg.nthCycleState inputs n' nid).snd
+        | n' + 1 => (dfg.nthCycleState wf inputs n' nid).snd
       (NodeOps.eval node.ops) nodeInputs currState
-    termination_by n nid => (n, dfg.numNodes - nid)
+  -- def nthCycleState (dfg : WFDataflowGraph) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
+  --   λ n nid =>
+  --     let node := dfg.nodes.get nid
+  --     let inputsFinRange := List.finRange node.inputs.length
+  --     have finRange_map_eq : inputsFinRange.map node.inputs.get = node.inputs := List.finRange_map_get node.inputs
+  --     let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get (
+  --       λ port =>
+  --         match FIFO.findNodeInput dfg.fifos nid port with
+  --         | .some fifo =>
+  --           -- have h : isNodeInput port fifo = true := List.find?_some h_match
+  --           -- have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq h
+  --           match fifo with
+  --           | .input fifo' =>
+  --             (inputs n).getNth fifo'.producer
+  --           | .advancing fifo' =>
+  --             have := advancing_fifo_lt h
+  --             let producerOutputs := (dfg.nthCycleState inputs n fifo'.producer).fst
+  --             h_ty_eq ▸ producerOutputs.get fifo'.producerPort
+  --           | .initialized fifo' =>
+  --             match n with
+  --             | 0 => h_ty_eq ▸ fifo'.initialValue
+  --             | n' + 1 =>
+  --               let producerOutputs := (dfg.nthCycleState inputs n' fifo'.producer).fst
+  --               h_ty_eq ▸ producerOutputs.get fifo'.producerPort
+  --         | .none =>
+  --           Denote.default (node.inputs.get fin)
+  --     )
+  --     let currState : DenoList node.state :=
+  --       match n with
+  --       | 0 => node.initialState
+  --       | n' + 1 => (dfg.nthCycleState inputs n' nid).snd
+  --     (NodeOps.eval node.ops) nodeInputs currState
+  --   termination_by n nid => (n, dfg.numNodes - nid)
 
-  @[simp]
-  def denote (dfg : DataflowGraph τ F)
-    (inputs : DenoStreamsList dfg.inputs) : DenoStreamsList (dfg.outputs) :=
-    let packedInputs := inputs.pack
-    let stateStream := dfg.nthCycleState packedInputs
-    let outputsFinRange := List.finRange dfg.outputs.length
-    have finRange_map_eq : outputsFinRange.map dfg.outputs.get = dfg.outputs := List.finRange_map_get dfg.outputs
-    let packedOutputStream : DenoListsStream dfg.outputs :=
-      λ n =>
-        finRange_map_eq ▸ outputsFinRange.toHList dfg.outputs.get (
-          λ fin =>
-            let outputMem := dfg.outputs.nthMember fin
-            let fifoOpt := dfg.findGlobalOutput outputMem
-            match fifoOpt with
-            | .some ⟨fifo, h⟩ =>
-              let outputs : DenoList (dfg.nodes.get fifo.producer).outputs := (stateStream n fifo.producer).fst
-              let output : Denote.denote fifo.t := outputs.get fifo.producerPort
-              h ▸ output
-            | .none =>
-              Denote.default (dfg.outputs.get fin)
-        )
-    packedOutputStream.unpack
+  -- @[simp]
+  -- def denote (dfg : DataflowGraph τ F)
+  --   (inputs : DenoStreamsList dfg.inputs) : DenoStreamsList (dfg.outputs) :=
+  --   let packedInputs := inputs.pack
+  --   let stateStream := dfg.nthCycleState packedInputs
+  --   let outputsFinRange := List.finRange dfg.outputs.length
+  --   have finRange_map_eq : outputsFinRange.map dfg.outputs.get = dfg.outputs := List.finRange_map_get dfg.outputs
+  --   let packedOutputStream : DenoListsStream dfg.outputs :=
+  --     λ n =>
+  --       finRange_map_eq ▸ outputsFinRange.toHList dfg.outputs.get (
+  --         λ fin =>
+  --           let outputMem := dfg.outputs.nthMember fin
+  --           let fifoOpt := dfg.findGlobalOutput outputMem
+  --           match fifoOpt with
+  --           | .some ⟨fifo, h⟩ =>
+  --             let outputs : DenoList (dfg.nodes.get fifo.producer).outputs := (stateStream n fifo.producer).fst
+  --             let output : Denote.denote fifo.t := outputs.get fifo.producerPort
+  --             h ▸ output
+  --           | .none =>
+  --             Denote.default (dfg.outputs.get fin)
+  --       )
+  --   packedOutputStream.unpack
 
 end DataflowGraph
 
