@@ -381,6 +381,7 @@ theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.
     simp at heq
     -- simp only [DataflowGraph.nthCycleState.proof_2]
     -- simp_rw [←heq]
+   
     sorry
   next heq =>
     simp at heq

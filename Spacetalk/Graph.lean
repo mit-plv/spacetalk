@@ -273,31 +273,29 @@ namespace DataflowGraph
   def nthCycleState (dfg : DataflowGraph τ F) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
     λ n nid =>
       let node := dfg.nodes.get nid
-      let inputsFinRange := List.finRange node.inputs.length
-      have finRange_map_eq : inputsFinRange.map node.inputs.get = node.inputs := List.finRange_map_get node.inputs
-      let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get (
-        λ fin =>
-          let port := node.inputs.nthMember fin
-          match h_match : findNodeInput port with
-          | .some fifo =>
-            have h : isNodeInput port fifo = true := List.find?_some h_match
-            have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq h
-            match fifo with
-            | .input fifo' =>
-              h_ty_eq ▸ (inputs n).get fifo'.producer
-            | .advancing fifo' =>
-              have := advancing_fifo_lt h
-              let producerOutputs := (dfg.nthCycleState inputs n fifo'.producer).fst
+      let nthInput (fin : Fin node.inputs.length) : Denote.denote (node.inputs.get fin) :=
+        let port := node.inputs.nthMember fin
+        match h_match : findNodeInput port with
+        | .some fifo =>
+          have h : isNodeInput port fifo = true := List.find?_some h_match
+          have h_ty_eq : fifo.t = node.inputs.get fin := node_input_fifo_ty_eq h
+          match fifo with
+          | .input fifo' =>
+            h_ty_eq ▸ (inputs n).get fifo'.producer
+          | .advancing fifo' =>
+            have := advancing_fifo_lt h
+            let producerOutputs := (dfg.nthCycleState inputs n fifo'.producer).fst
+            h_ty_eq ▸ producerOutputs.get fifo'.producerPort
+          | .initialized fifo' =>
+            match n with
+            | 0 => h_ty_eq ▸ fifo'.initialValue
+            | n' + 1 =>
+              let producerOutputs := (dfg.nthCycleState inputs n' fifo'.producer).fst
               h_ty_eq ▸ producerOutputs.get fifo'.producerPort
-            | .initialized fifo' =>
-              match n with
-              | 0 => h_ty_eq ▸ fifo'.initialValue
-              | n' + 1 =>
-                let producerOutputs := (dfg.nthCycleState inputs n' fifo'.producer).fst
-                h_ty_eq ▸ producerOutputs.get fifo'.producerPort
-          | .none =>
-            Denote.default (node.inputs.get fin)
-      )
+        | .none => Denote.default (node.inputs.get fin)
+      let inputsFinRange := List.finRange node.inputs.length
+      let nodeInputs : (DenoList node.inputs) :=
+        (List.finRange_map_get node.inputs) ▸ inputsFinRange.toHList node.inputs.get nthInput
       let currState : DenoList node.state :=
         match n with
         | 0 => node.initialState
