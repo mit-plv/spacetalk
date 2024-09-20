@@ -375,14 +375,15 @@ theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.
   simp only [List.toHList]
   split
   next fifo heq =>
-    have heq_1 : DataflowGraph.findNodeInput (((@Step.Prog.const α).compile.g.nodes.get ⟨0, by simp⟩).inputs.nthMember ⟨0, by simp⟩)
-      = some (.input ⟨α.toSDF, .head, ⟨0, by simp⟩, .head⟩) := by simp
-    rw [heq_1] at heq
     simp at heq
-    -- simp only [DataflowGraph.nthCycleState.proof_2]
-    -- simp_rw [←heq]
-   
-    sorry
+    subst heq
+    simp [Vector.cons, Vector.get]
+    split
+    rename_i heq
+    split at heq
+    rename_i heq_1
+    rw [←heq_1] at heq
+    exact (HList.cons.inj heq).left.symm
   next heq =>
     simp at heq
 
