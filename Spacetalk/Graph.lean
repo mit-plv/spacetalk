@@ -66,6 +66,7 @@ structure AdvancingFIFO where
   adv : producer > consumer
 
 structure InitializedFIFO where
+  α : Type
   initialValue : α
   producer : Nat
   consumer : Nat
@@ -157,7 +158,7 @@ structure DataflowGraph (τ : Type) [DecidableEq τ] [Denote τ] (F : NodeType �
   nodes : NodeList τ F numNodes
   fifos : List FIFO
 
-def fifo_idx_valid (inputs outputs : List τ) (nodes : NodeList τ F numNodes) (fifos : List FIFO) : Prop :=
+abbrev fifo_idx_valid (inputs outputs : List τ) (nodes : NodeList τ F numNodes) (fifos : List FIFO) : Prop :=
   ∀ f ∈ fifos,
     match f with
     | .input f =>
@@ -173,14 +174,28 @@ def fifo_idx_valid (inputs outputs : List τ) (nodes : NodeList τ F numNodes) (
       f.producer < nodes.length
         ∧ f.consumer < nodes.length
 
-def fifos_fully_connected (nodes : NodeList τ F numNodes) (fifos : List FIFO) : Prop :=
+abbrev fifos_fully_connected (nodes : NodeList τ F numNodes) (fifos : List FIFO) : Prop :=
   ∀ (nid : Fin numNodes) (port : Fin (nodes.get nid).inputs.length),
     (FIFO.findNodeInput fifos nid port).isSome = true
       ∧ (FIFO.findNodeInput fifos nid port).map (FIFO.isNodeInput nid port) = true
 
+abbrev node_inputs_well_typed {nodes : NodeList τ F numNodes} (idx_valid : fifo_idx_valid inputs outputs nodes fifos) : Prop :=
+  ∀ (nid : Fin numNodes) (port : Fin (nodes.get nid).inputs.length) (fifo : FIFO),
+    (h : fifo ∈ fifos) → (h_input : fifo.isNodeInput nid port) →
+      match h_fifo : fifo with
+      | .input f =>
+        let idx : Fin inputs.length := ⟨f.producer, by
+          have := idx_valid fifo (h_fifo ▸ h)
+          simp [h_fifo] at this
+          exact this.left
+        ⟩
+        inputs.get idx = (nodes.get nid).inputs.get port
+      | _ => True
+
 structure dfg_well_formed (dfg : DataflowGraph τ F) where
   fifo_idx : fifo_idx_valid dfg.inputs dfg.outputs dfg.nodes dfg.fifos
   fifos_fc : fifos_fully_connected dfg.nodes dfg.fifos
+  inputs_type : node_inputs_well_typed fifo_idx
 
 ----------------------------------------------------------------------------------------------------
 
@@ -241,6 +256,7 @@ theorem DenoListsStream_unpack_pack_eq {ts : List τ} {dls : DenoListsStream ts}
   intro n
   induction ts <;> (cases hm : dls n; simp_all)
 
+
 namespace DataflowGraph
 
   abbrev stateMap (dfg : DataflowGraph τ F) :=
@@ -264,27 +280,33 @@ namespace DataflowGraph
   def nthCycleState (dfg : DataflowGraph τ F) (wf : dfg_well_formed dfg) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
     λ n nid =>
       let node := dfg.nodes.get nid
+      let nthInput (port : Fin node.inputs.length) : Denote.denote (node.inputs.get port) :=
+          let fifoOpt := FIFO.findNodeInput dfg.fifos nid port
+          have : fifoOpt.isSome = true := (wf.fifos_fc nid port).left
+          match h_some : fifoOpt with
+          | .some fifo =>
+            have h_mem : fifo ∈ dfg.fifos := List.mem_of_find?_eq_some h_some
+            have h_input : fifo.isNodeInput nid port := List.find?_some h_some
+
+            match h_fifo : fifo with
+            | .input f =>
+              have h_lt : f.producer < dfg.inputs.length := by
+                have := wf.fifo_idx fifo (h_fifo ▸ h_mem)
+                simp [h_fifo] at this
+                exact this.left
+              let idx : Fin dfg.inputs.length := ⟨f.producer, h_lt⟩
+              have h_ty_eq : dfg.inputs.get idx = node.inputs.get port := by
+                have h_wf := wf.inputs_type nid port fifo (h_fifo ▸ h_mem) (h_fifo ▸ h_input)
+                subst h_fifo
+                exact h_wf
+              h_ty_eq ▸ (inputs n).getNth idx
+            | .advancing f =>
+              sorry
+            | .initialized f =>
+              sorry
       let inputsFinRange := List.finRange node.inputs.length
       have finRange_map_eq : inputsFinRange.map node.inputs.get = node.inputs := List.finRange_map_get node.inputs
-      let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get (
-        λ port =>
-          let fifo := FIFO.findNodeInput dfg.fifos nid port
-          have h_some : fifo.isSome = true := (wf.fifos_fc nid port).left
-          match fifo with
-          | .some fifo =>
-            have h : fifo.isNodeInput nid port = true := by
-             have := (wf.fifos_fc nid port).right
-             simp only [Option.map] at this
-             
-            match fifo with
-            | .input fifo' =>
-              -- (inputs n).getNth fifo'.producer
-              sorry
-            | .advancing fifo' =>
-              sorry
-            | .initialized fifo' =>
-              sorry
-      )
+      let nodeInputs : (DenoList node.inputs) := finRange_map_eq ▸ inputsFinRange.toHList node.inputs.get nthInput
       let currState : DenoList node.state :=
         match n with
         | 0 => node.initialState
