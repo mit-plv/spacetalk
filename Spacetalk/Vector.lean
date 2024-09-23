@@ -15,10 +15,11 @@ theorem Vector.get_append_right {xs : Vector α n} {ys : Vector α m} {i : Fin m
   : (xs.append ys).get ⟨i + n, by omega⟩ = ys.get i :=
   match xs, ys with
   | ⟨xsl, xeq⟩, ⟨ysl, yeq⟩ => by
-    simp [Vector.get]
+    simp only [Vector.get, Fin.cast_mk, List.get_eq_getElem, Fin.coe_cast]
     have := List.getElem_append_right (i := i + n) xsl ysl
     rw [xeq] at this
-    simp at this
+    simp only [add_lt_iff_neg_right, not_lt_zero', not_false_eq_true, List.length_append,
+      add_tsub_cancel_right, true_implies] at this
     apply this
     omega
     rw [yeq]

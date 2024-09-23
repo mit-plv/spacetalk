@@ -118,7 +118,7 @@ inductive Pipeline : (inputs : List Ty) → (outputs : List Ty) → Type
   | const : {α : Ty} → α.denote → Pipeline [] [α]
   | unaryOp : {α β : Prim} → UnaryOp α β → Pipeline [α.toTy] [β.toTy]
   | binaryOp : {α β γ : Prim} → BinaryOp α β γ → Pipeline [α.toTy, β.toTy] [γ.toTy]
-  | guard : {α : Ty} → Pipeline [BoolTy, α] [α]
+  | guard : {any α : Ty} → Pipeline [any, α] [α]
   | mux : {α : Ty} → Pipeline [BoolTy, α, α] [α]
 
 @[simp]

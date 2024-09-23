@@ -168,13 +168,11 @@ variable {nodes : NodeList τ F numNodes}
 
   theorem outputNotInput {inputs outputs : List τ} {fifo : FIFO inputs outputs nodes}
     : fifo.isOutput = true → fifo.isInput = false := by
-    intro h
-    cases h_match : fifo <;> repeat (first | simp | simp [h_match, FIFO.isOutput] at h)
+    intro; cases fifo <;> simp_all
 
   theorem inputNotOutput {inputs outputs : List τ} {fifo : FIFO inputs outputs nodes}
     : fifo.isInput = true → fifo.isOutput = false := by
-    intro h
-    cases h_match : fifo <;> repeat (first | simp [FIFO.isOutput] | simp [h_match] at h)
+    intro; cases fifo <;> simp_all
 
   @[simp]
   def producer {inputs outputs : List τ}
@@ -243,8 +241,7 @@ namespace DataflowGraph
     let outputs := dfg.fifos.filterMap FIFO.getOutput
     let fifo := outputs.find? (λ fifo => fifo.t = t ∧ fifo.consumer.compare output)
     match h : fifo with
-    | some f =>
-        some ⟨f, by have := List.find?_some h; simp at this; exact this.left⟩
+    | some f => some ⟨f, by have := List.find?_some h; simp_all⟩
     | none => none
 
   abbrev stateMap (dfg : DataflowGraph τ F) :=
@@ -254,21 +251,14 @@ namespace DataflowGraph
     {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
     {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : FIFO dfg.inputs dfg.outputs dfg.nodes}
     (h_is_node_input : dfg.isNodeInput port fifo = true) : fifo.t = (dfg.nodes.get nid).inputs.get fin := by
-    cases h_fm : fifo <;> simp [h_fm, isNodeInput] at h_is_node_input <;>
-    (
-      rename_i fifo'
-      exact h_is_node_input.left
-    )
+    cases fifo <;> simp_all
 
   theorem advancing_fifo_lt {dfg : DataflowGraph τ F}
     {nid : Fin dfg.numNodes} {fin : Fin (dfg.nodes.get nid).inputs.length}
     {port : Member ((dfg.nodes.get nid).inputs.get fin) (dfg.nodes.get nid).inputs} {fifo : AdvancingFIFO dfg.nodes}
     (h_is_node_input : dfg.isNodeInput port (.advancing fifo) = true) : nid < fifo.producer := by
-    have : fifo.consumer = nid := by
-      simp [isNodeInput] at h_is_node_input
-      exact h_is_node_input.right.left
-    rw [←this]
-    exact fifo.adv
+    suffices heq : fifo.consumer = nid from heq ▸ fifo.adv
+    simp_all
 
   def nthCycleState (dfg : DataflowGraph τ F) (inputs : DenoListsStream dfg.inputs) : Nat -> dfg.stateMap :=
     λ n nid =>

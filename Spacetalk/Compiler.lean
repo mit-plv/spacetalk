@@ -7,17 +7,12 @@ import Spacetalk.Inequalities
 
 open Mathlib
 
-def SDFNode := Node SimpleDataflow.Ty SimpleDataflow.Ops
-
-def SDFNodeList := NodeList SimpleDataflow.Ty SimpleDataflow.Ops
+abbrev SDFNode := Node SimpleDataflow.Ty SimpleDataflow.Ops
+abbrev SDFNodeList := NodeList SimpleDataflow.Ty SimpleDataflow.Ops
 
 @[reducible, simp]
 def Step.Ty.toSDF : Step.Ty → SimpleDataflow.Ty
   | bitVec w => .option (.bitVec w)
-
-theorem ty_eq_option : ∀ sTy : Step.Ty, sTy.toSDF.denote = Option sTy.denote := by
-  intro sTy
-  simp
 
 structure SDFConv (inputs : List Step.Ty) (output : Step.Ty) where
   g : SimpleDataflow.DataflowMachine
@@ -28,7 +23,7 @@ structure SDFConv (inputs : List Step.Ty) (output : Step.Ty) where
 
   output_eq : g.outputs = [output.toSDF]
   outputFifo : OutputFIFO g.outputs g.nodes
-  only_output : FIFO.getOutputs g.fifos= [outputFifo]
+  only_output : FIFO.getOutputs g.fifos = [outputFifo]
 
 def Step.BinaryOp.compile : Step.BinaryOp α β γ → SimpleDataflow.Ops [α.toSDF, β.toSDF] [γ.toSDF] []
   | .add => .binaryOp .add
@@ -44,49 +39,26 @@ class IndexConverter {α : Type u} {n m : Nat} (xs : Vector α n) (ys : Vector �
 -- Assume new consumer is appended to the front
 def consConverter : IndexConverter xs (x ::ᵥ xs.append ys) :=
   let conv : Fin xs.length → Fin (x ::ᵥ xs.append ys).length :=
-    λ i ↦ ⟨i.val + 1, by simp; have := i.isLt; simp only [Vector.length] at this; omega⟩
-  have conv_congr : ∀ {i}, xs.get i = (x ::ᵥ xs.append ys).get (conv i) := by
-    intro i
-    rw [←(x ::ᵥ xs.append ys).get_tail ⟨i, Nat.lt_add_right _ i.isLt⟩]
-    exact Vector.get_append_left.symm
+    λ i ↦ ⟨i.val + 1, by simp_all only [Vector.length]; omega⟩
+  have conv_congr : ∀ {i}, xs.get i = (x ::ᵥ xs.append ys).get (conv i) := Vector.get_append_left.symm
   have conv_lt : ∀ ⦃i j⦄, i < j → conv i < conv j := by simp [conv]
-  have conv_gt_zero: ∀ {i}, 0 < conv i := by
-    intro i
-    simp [conv]
-    apply Fin.mk_lt_mk.mpr
-    rw [Nat.zero_mod]
-    simp
+  have conv_gt_zero: ∀ {i}, 0 < conv i := Fin.mk_lt_mk.mpr (by simp)
   ⟨0, conv, conv_congr, conv_lt, conv_gt_zero⟩
 
 -- Assume new consumer is appended to the front
 def consAppendConverter {xs : Vector α n} {ys : Vector α m} : IndexConverter ys (x ::ᵥ xs.append ys) :=
   let conv : Fin m → Fin (n + m + 1) := λ i ↦ ⟨i.val + n + 1, by omega⟩
-  have conv_congr : ∀ {i}, ys.get i = (x ::ᵥ xs.append ys).get (conv i) := by
-    intro i
-    simp [conv]
-    rw [←(x ::ᵥ xs.append ys).get_tail ⟨i + n, by omega⟩]
-    simp
-    exact Vector.get_append_right.symm
+  have conv_congr : ∀ {i}, ys.get i = (x ::ᵥ xs.append ys).get (conv i) := Vector.get_append_right.symm
   have conv_lt : ∀ ⦃i j⦄, i < j → conv i < conv j := by simp [conv]
-  have conv_gt_zero: ∀ {i}, 0 < conv i := by
-    intro i
-    simp [conv]
-    apply Fin.mk_lt_mk.mpr
-    rw [Nat.zero_mod]
-    simp
+  have conv_gt_zero: ∀ {i}, 0 < conv i :=  Fin.mk_lt_mk.mpr (by simp)
   ⟨0, conv, conv_congr, conv_lt, conv_gt_zero⟩
 
 def appendConverter {xs : Vector α n} {ys : Vector α m} (newConsumer : Fin n) : IndexConverter ys (xs.append ys) :=
   let conv : Fin m → Fin (n + m) := λ i ↦ ⟨i.val + n, by omega⟩
-  have conv_congr : ∀ {i}, ys.get i = (xs.append ys).get (conv i) := by
-    intro i
-    exact Vector.get_append_right.symm
+  have conv_congr : ∀ {i}, ys.get i = (xs.append ys).get (conv i) := Vector.get_append_right.symm
   have conv_lt : ∀ ⦃i j⦄, i < j → conv i < conv j := by simp [conv]
   let newConsumer' : Fin (n + m) := ⟨newConsumer.val, Nat.lt_add_right m newConsumer.isLt⟩
-  have conv_gt_consumer: ∀ {i}, newConsumer' < conv i := by
-    intro i
-    simp [conv, newConsumer']
-    omega
+  have conv_gt_consumer: ∀ {i}, newConsumer' < conv i := Fin.mk_lt_mk.mpr (by omega)
   ⟨newConsumer', conv, conv_congr, conv_lt, conv_gt_consumer⟩
 
 /-- Assume new consumer has index 0. -/
@@ -109,15 +81,15 @@ def convertFifosOutput {inputs outputs : List SimpleDataflow.Ty} {numNodes : Nat
       | .output f =>
         let newProducer := idxConv.conv f.producer
         have h_ty_eq : α.toSDF = f.t := by
-          have : FIFO.output (inputs := inputs) f = .output a.outputFifo := by
+          have : f = a.outputFifo := by
             apply List.mem_singleton.mp
-            rw [←List.map_singleton, ←a.only_output]
-            aesop
-          simp [FIFO.output.inj] at this
+            rw [←a.only_output]
+            apply List.mem_filterMap.mpr
+            exists FIFO.output f
           rw [this]
-          have h_output_in_output : a.outputFifo.t ∈ a.g.outputs := a.outputFifo.consumer.to_mem
-          simp [a.output_eq] at h_output_in_output
-          exact h_output_in_output.symm
+          have : a.outputFifo.t ∈ a.g.outputs := a.outputFifo.consumer.to_mem
+          simp only [a.output_eq, List.mem_singleton] at this
+          exact this.symm
         let fifo : AdvancingFIFO nodes := {
           t := f.t,
           producer := newProducer,
@@ -157,14 +129,15 @@ theorem convertFifos_no_output
   {newConsumerPort : Member α.toSDF (nodes.get idxConv.newConsumer).inputs}
   {memConv : {t : SimpleDataflow.Ty} → Member t a.g.inputs → Member t inputs}
   : FIFO.getOutputs (convertFifosOutput a idxConv newConsumerPort memConv) (outputs := outputs) = [] := by
-  simp [List.eq_nil_iff_forall_not_mem, List.mem_filterMap]
+  simp only [FIFO.getOutputs, List.eq_nil_iff_forall_not_mem, List.mem_filterMap, FIFO.getOutput,
+    not_exists, not_and]
   intro _ fifo h_mem
   have h_map := List.mem_map.mp h_mem
-  let ⟨⟨fifo', _⟩, ⟨_, h_match⟩⟩ := h_map
-  cases fifo' <;> (simp at h_match; rw [←h_match]; simp [FIFO.isOutput])
+  obtain ⟨⟨fifo', _⟩, ⟨_, h_match⟩⟩ := h_map
+  cases fifo' <;> (simp only [Step.Ty.toSDF] at h_match; rw [←h_match]; simp [FIFO.isOutput])
 
 @[simp]
-def constStreamGraph (α : Step.Ty) : SDFConv [α] α :=
+def idGraph (α : Step.Ty) : SDFConv [α] α :=
   let inputs : List SimpleDataflow.Ty := [α.toSDF]
   let outputs : List SimpleDataflow.Ty := [α.toSDF]
   let nodes : SDFNodeList 1 := ⟨inputs, outputs, [], []ₕ, .unaryOp .identity⟩ ::ᵥ .nil
@@ -208,7 +181,7 @@ def zipGraph (op : Step.BinaryOp α β γ) (a : SDFConv aInp α) (b : SDFConv bI
   {
     g := newGraph,
 
-    inputs_eq := by simp; rw [←a.inputs_eq, ←b.inputs_eq],
+    inputs_eq := by simp [←a.inputs_eq, ←b.inputs_eq],
     inputFifos := inputFifos,
     only_inputs := only_inputs,
 
@@ -217,7 +190,7 @@ def zipGraph (op : Step.BinaryOp α β γ) (a : SDFConv aInp α) (b : SDFConv bI
     only_output := one_output,
   }
 
-def constValueGraph {t : Step.Ty} (c : t.denote) : SDFConv [] t :=
+def constGraph {t : Step.Ty} (c : t.denote) : SDFConv [] t :=
   let constOutFifo := ⟨t.toSDF, 0, .head, .head⟩
   let constGraph : SimpleDataflow.DataflowMachine := ⟨
     [],
@@ -230,8 +203,8 @@ def constValueGraph {t : Step.Ty} (c : t.denote) : SDFConv [] t :=
 
 def mapGraph (op : Step.UnaryOp α β) (a : SDFConv inp α) : SDFConv inp β :=
   match op with
-  | .addConst c => zipGraph .add (constValueGraph c) a
-  | .mulConst c => zipGraph .mul (constValueGraph c) a
+  | .addConst c => zipGraph .add (constGraph c) a
+  | .mulConst c => zipGraph .mul (constGraph c) a
 
 def reduceBlock {α β : Step.Ty}
   (op : Step.BinaryOp α β α) (len : Nat) (init : α.denote) (b : SDFConv inp β)
@@ -323,7 +296,7 @@ def reduceBlock {α β : Step.Ty}
 
 @[simp]
 def Step.Prog.compile {inp : List Step.Ty} {out : Step.Ty} : Step.Prog inp out → SDFConv inp out
-  | @Step.Prog.const α => constStreamGraph α
+  | @Step.Prog.id α => idGraph α
   | .zip op as bs => zipGraph op as.compile bs.compile
   | .map op as => mapGraph op as.compile
   | .reduce op len init bs => reduceBlock op len init bs.compile
@@ -344,28 +317,14 @@ def throughPutDef {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) (
 def Step.Prog.throughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) :=
   {n : Nat // throughPutDef p n}
 
-set_option trace.split.failure true
-
-theorem const_graph_output_eq {α : Step.Ty} :
-  DataflowGraph.findGlobalOutput (@Step.Prog.const α).compile.g Member.head
-    = some ⟨⟨α.toSDF, ⟨0, by simp⟩, .head, .head⟩, by simp⟩ := by
-  aesop
-
-theorem const_graph_input_eq {α : Step.Ty} :
-  DataflowGraph.findNodeInput (dfg := (@Step.Prog.const α).compile.g) (nid := ⟨0, by simp⟩) Member.head
-    = some (.input ⟨α.toSDF, .head, ⟨0, by simp⟩, .head⟩) := by
-  aesop
-
-set_option pp.proofs true
-
-theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.toSDF [α])}
+theorem id_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.toSDF [α])}
   (all_somes : inputs_all_somes inputs)
-  : (getOutput .const inputs) i = (inputs.get .head) i := by
+  : (getOutput .id inputs) i = (inputs.get .head) i := by
   simp only [getOutput, HList.head, DataflowGraph.denote, DenoListsStream.unpack,
              List.toHList, HList.get]
-  have h_node_outputs : ((@Step.Prog.const α).compile.g.nodes.get ⟨0, by simp⟩).outputs = [α.toSDF] := by simp
-  have h_outputs : (@Step.Prog.const α).compile.g.outputs = [α.toSDF] := by simp
-  have heq : DataflowGraph.findGlobalOutput Step.Prog.const.compile.g (Step.Prog.const.compile.g.outputs.nthMember ⟨0, by simp⟩)
+  have h_node_outputs : ((@Step.Prog.id α).compile.g.nodes.get ⟨0, by simp⟩).outputs = [α.toSDF] := by simp
+  have h_outputs : (@Step.Prog.id α).compile.g.outputs = [α.toSDF] := by simp
+  have heq : DataflowGraph.findGlobalOutput Step.Prog.id.compile.g (Step.Prog.id.compile.g.outputs.nthMember ⟨0, by simp⟩)
     = some ⟨⟨α.toSDF, ⟨0, by simp⟩, h_node_outputs ▸ Member.head, h_outputs ▸ Member.head⟩, by simp⟩ := by
     aesop
   rw [heq]
@@ -375,9 +334,18 @@ theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.
   simp only [List.toHList]
   split
   next fifo heq =>
-    simp at heq
+    simp only [Step.Prog.compile, idGraph, Step.Ty.toSDF, Fin.isValue, DataflowGraph.findNodeInput,
+      Nat.zero_eq, Fin.zero_eta, List.get_eq_getElem, Fin.val_zero, List.nthMember,
+      List.length_singleton, List.getElem_cons_zero, DataflowGraph.isNodeInput, Vector.get_zero,
+      Vector.head_cons, Member.compare, and_self, decide_True, List.find?_cons_of_pos,
+      Option.some.injEq] at heq
     subst heq
-    simp [Vector.cons, Vector.get]
+    simp only [Step.Ty.toSDF, HList.get, HList.head, SimpleDataflow.Pipeline.eval,
+      Step.Prog.compile, idGraph, Vector.cons, Nat.succ_eq_add_one, Nat.reduceAdd, Fin.isValue,
+      Nat.zero_eq, Fin.zero_eta, Vector.get, List.length_singleton, Fin.cast_eq_self,
+      List.get_eq_getElem, Fin.val_zero, List.getElem_cons_zero, List.singleton_append,
+      HList.append, List.pmap.eq_1, List.map_nil, List.append_eq, List.nil_append,
+      DenoStreamsList.pack, SimpleDataflow.UnaryOp.eval, Option.map_id_fun, id_eq]
     split
     rename_i heq
     split at heq
@@ -388,7 +356,7 @@ theorem const_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.
     simp at heq
 
 def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.throughPut
-  | const =>
+  | id =>
     ⟨
       1,
       by
@@ -396,7 +364,7 @@ def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Pro
         apply Iff.intro
         · intro
           exact Nat.mod_one i
-        · rw [const_output_eq all_somes]
+        · rw [id_output_eq all_somes]
           cases inputs
           simp [all_somes.left i]
     ⟩
@@ -409,10 +377,7 @@ def Step.Prog.filteredOutput {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog
   : DenoStreamsList [out] :=
   let tp := p.getThroughPut
   let outputs := getOutput p inputs
-  [λ (i : Nat) => (outputs (i * tp.val)).get (by
-    apply (tp.prop inputs h_some (i * tp.val)).mpr
-    simp
-  )]ₕ
+  [λ i => (outputs (i * tp.val)).get ((tp.prop inputs h_some (i * tp.val)).mpr (by simp))]ₕ
 
 def transformInputs {inp : List Step.Ty} (inputs : DenoStreamsList inp)
   : {inputs' : DenoStreamsList (inp.map Step.Ty.toSDF) // inputs_all_somes inputs'} :=

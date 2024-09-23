@@ -20,7 +20,7 @@ def sa : Stream' (BitVec 32) := λ n => ⟨n % (2 ^ 32), Nat.mod_lt n (Nat.zero_
 
 namespace Step
   def dotProd (n : Nat) : Prog [BV32, BV32] BV32 :=
-    〚 n +r start 0 on (const_32 *z const_32) 〛
+    〚 n +r start 0 on (id_32 *z id_32) 〛
 end Step
 
 theorem step_dp_equiv : ∀n : Nat, (Step.dotProd n).denote = dotProd n := by
@@ -48,4 +48,4 @@ def checkInput (n : Nat) (i : Nat) :=
   | some r => (step_res, r.toNat, r.toNat == step_res)
   | _ => (0, 0, false)
 
-#eval checkInput 2 1
+#eval checkInput 2 0
