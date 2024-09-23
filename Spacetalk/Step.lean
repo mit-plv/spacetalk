@@ -35,7 +35,7 @@ inductive UnaryOp : Ty → Ty → Type
   | mulConst : {w : Nat} → BitVec w → UnaryOp (BitVecTy w) (BitVecTy w)
 
 inductive Prog : List Ty → Ty → Type
-  | id : {α : Ty} → Prog [α] α
+  | id : Prog [α] α
   | zip : BinaryOp α β γ → Prog aInp α → Prog bInp β → Prog (aInp ++ bInp) γ
   | map : UnaryOp α β → Prog inp α → Prog inp β
   | reduce : BinaryOp α β α → Nat → α.denote → Prog inp β → Prog inp α

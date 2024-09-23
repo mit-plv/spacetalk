@@ -318,7 +318,7 @@ def Step.Prog.throughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp
   {n : Nat // throughPutDef p n}
 
 theorem id_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.toSDF [α])}
-  (all_somes : inputs_all_somes inputs)
+  (all_somes : inputs_all_somes inputs) (i : Nat)
   : (getOutput .id inputs) i = (inputs.get .head) i := by
   simp only [getOutput, HList.head, DataflowGraph.denote, DenoListsStream.unpack,
              List.toHList, HList.get]
@@ -397,5 +397,21 @@ def transformInputs {inp : List Step.Ty} (inputs : DenoStreamsList inp)
 
 theorem compile_correct {inp : List Step.Ty} {out : Step.Ty} {prog : Step.Prog inp out}
   (inputs : DenoStreamsList inp) :
-  prog.denote inputs = prog.filteredOutput (transformInputs inputs).val (transformInputs inputs).property := by
-  sorry
+  prog.denote inputs = prog.filteredOutput (transformInputs inputs).val (transformInputs inputs).property :=
+  match inp, out, prog with
+  | _, _, .id => by
+    simp only [Step.Prog.denote, Step.Prog.filteredOutput, Step.Prog.getThroughPut, Nat.mul_one]
+    have := id_output_eq ((transformInputs inputs).prop)
+    have : (λ i => (Option.get (getOutput Step.Prog.id (↑(transformInputs inputs)) i) (by cases inputs; rw [this]; simp)))
+            = λ i => (inputs.get .head) i := by
+      funext i
+      simp_rw [this]
+      cases inputs
+      simp
+    rw [this]
+    cases inputs
+    split
+    simp_all
+  | _, _, .zip op x y => sorry
+  | _, _, .map op x => sorry
+  | _, _, .reduce op n a y => sorry
