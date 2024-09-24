@@ -313,7 +313,7 @@ def getOutput {inp : List Step.Ty} {out : Step.Ty}
 abbrev Step.Prog.ThroughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) :=
   {n : Nat // (inputs : WrappedInputs inp) → ∀ i, ((getOutput p inputs.val) i).isSome ↔ i % n = 0}
 
-theorem id_output_eq {α : Step.Ty} (inputs : WrappedInputs [α]) (i : Nat)
+lemma id_output_eq {α : Step.Ty} (inputs : WrappedInputs [α]) (i : Nat)
   : (getOutput .id inputs.val) i = (inputs.val.get .head) i := by
   simp only [getOutput, HList.head, DataflowGraph.denote, DenoListsStream.unpack,
              List.toHList, HList.get]

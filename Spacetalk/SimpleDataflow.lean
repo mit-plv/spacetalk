@@ -4,30 +4,11 @@ namespace SimpleDataflow
 
 inductive Prim
   | bitVec : Nat → Prim
-
-@[simp]
-def Prim.decEq (a : Prim) (b : Prim) : Decidable (a = b) :=
-  match a, b with
-  | .bitVec a, .bitVec b =>
-    if h : a = b then
-      isTrue (h ▸ rfl)
-    else
-      isFalse (λ heq => h ((bitVec.injEq a b).mp heq))
-
-instance : DecidableEq Prim := Prim.decEq
+deriving DecidableEq
 
 inductive Ty
   | option : Prim → Ty
-
-def Ty.decEq (a : Ty) (b : Ty) : Decidable (a = b) :=
-  match a, b with
-  | .option a, .option b =>
-    if h : a = b then
-      isTrue (h ▸ rfl)
-    else
-      isFalse (λ heq => h ((option.injEq a b).mp heq))
-
-instance : DecidableEq Ty := Ty.decEq
+deriving DecidableEq
 
 @[reducible]
 def Prim.toTy (p :Prim) : Ty :=
@@ -47,40 +28,6 @@ def Ty.denote : Ty → Type
 @[simp]
 def Ty.default : (ty : Ty) → ty.denote
   | .option _ => none
-
-@[simp]
-def Ty.denoteBEq : (ty : Ty) → (ty.denote → ty.denote → Bool)
-  | .option _ => λ a b =>
-    match a, b with
-      | .some aa, .some bb => aa == bb
-      | .none, .none => true
-      | _, _ => false
-
-@[simp]
-def Ty.denoteDecEq : (ty : Ty) → DecidableEq ty.denote
-  | .option _ => inferInstance
-
-instance {ty : Ty} : BEq ty.denote where
-  beq := ty.denoteBEq
-
-instance {ty : Ty} : DecidableEq ty.denote :=
-  ty.denoteDecEq
-
-instance {ty : Ty} : LawfulBEq ty.denote where
-  eq_of_beq := by
-    intro a b h
-    induction ty with
-    | option _ =>
-      cases a <;> cases b <;> repeat (first | contradiction | aesop)
-      simp [BEq.beq, Ty.denoteBEq] at h
-      simp [h]
-
-  rfl := by
-    intro a
-    cases ty
-    · cases a
-      · rfl
-      · simp [BEq.beq, Ty.denoteBEq]
 
 instance : Denote Ty where
   denote := Ty.denote
