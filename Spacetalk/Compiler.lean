@@ -301,8 +301,8 @@ def Step.Prog.compile {inp : List Step.Ty} {out : Step.Ty} : Step.Prog inp out �
   | .map op as => mapGraph op as.compile
   | .reduce op len init bs => reduceBlock op len init bs.compile
 
-def inputs_all_somes {tys : List SimpleDataflow.Ty} (inp : DenoStreamsList tys) : Prop :=
-  inp.Forall (λ s => ∀ i, (s i).isSome)
+abbrev WrappedInputs (inp : List Step.Ty) :=
+  {inputs : DenoStreamsList (inp.map Step.Ty.toSDF) // inputs.Forall (λ s => ∀ i, (s i).isSome)}
 
 @[simp]
 def getOutput {inp : List Step.Ty} {out : Step.Ty}
@@ -310,16 +310,11 @@ def getOutput {inp : List Step.Ty} {out : Step.Ty}
   : Stream' out.toSDF.denote :=
   HList.head (p.compile.output_eq ▸ (p.compile.g.denote (p.compile.inputs_eq ▸ inputs)))
 
-def throughPutDef {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) (n : Nat) :=
-  (inputs : DenoStreamsList (inp.map Step.Ty.toSDF)) → inputs_all_somes inputs
-  → ∀ i, ((getOutput p inputs) i).isSome ↔ i % n = 0
+abbrev Step.Prog.ThroughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) :=
+  {n : Nat // (inputs : WrappedInputs inp) → ∀ i, ((getOutput p inputs.val) i).isSome ↔ i % n = 0}
 
-def Step.Prog.throughPut {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out) :=
-  {n : Nat // throughPutDef p n}
-
-theorem id_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.toSDF [α])}
-  (all_somes : inputs_all_somes inputs) (i : Nat)
-  : (getOutput .id inputs) i = (inputs.get .head) i := by
+theorem id_output_eq {α : Step.Ty} (inputs : WrappedInputs [α]) (i : Nat)
+  : (getOutput .id inputs.val) i = (inputs.val.get .head) i := by
   simp only [getOutput, HList.head, DataflowGraph.denote, DenoListsStream.unpack,
              List.toHList, HList.get]
   have h_node_outputs : ((@Step.Prog.id α).compile.g.nodes.get ⟨0, by simp⟩).outputs = [α.toSDF] := by simp
@@ -355,35 +350,35 @@ theorem id_output_eq {α : Step.Ty} {inputs : DenoStreamsList (List.map Step.Ty.
   next heq =>
     simp at heq
 
-def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.throughPut
+def Step.Prog.getThroughPut {inp : List Step.Ty} {out : Step.Ty} : (p : Step.Prog inp out) → p.ThroughPut
   | id =>
     ⟨
       1,
       by
-        intro inputs all_somes i
+        intro inputs i
         apply Iff.intro
         · intro
           exact Nat.mod_one i
-        · rw [id_output_eq all_somes]
-          cases inputs
-          simp [all_somes.left i]
+        · rw [id_output_eq inputs i]
+          obtain ⟨inputs, h⟩ := inputs
+          rw [DenoStreamsList.Forall.eq_def] at h
+          aesop
     ⟩
   | zip op x y => sorry
   | map op x => sorry
   | reduce op n a x => sorry
 
-def Step.Prog.filteredOutput {inp : List Step.Ty} {out : Step.Ty} (p : Step.Prog inp out)
-  (inputs : DenoStreamsList (inp.map Step.Ty.toSDF)) (h_some : inputs_all_somes inputs)
+def Step.Prog.filteredOutput {inp : List Step.Ty} {out : Step.Ty}
+  (p : Step.Prog inp out) (inputs : WrappedInputs inp)
   : DenoStreamsList [out] :=
   let tp := p.getThroughPut
   let outputs := getOutput p inputs
-  [λ i => (outputs (i * tp.val)).get ((tp.prop inputs h_some (i * tp.val)).mpr (by simp))]ₕ
+  [λ i => (outputs (i * tp.val)).get ((tp.prop inputs (i * tp.val)).mpr (by simp))]ₕ
 
-def transformInputs {inp : List Step.Ty} (inputs : DenoStreamsList inp)
-  : {inputs' : DenoStreamsList (inp.map Step.Ty.toSDF) // inputs_all_somes inputs'} :=
-  let transformed := inputs.map Step.Ty.toSDF some
+def wrapInputs {inp : List Step.Ty} (inputs : DenoStreamsList inp)
+  : WrappedInputs inp :=
+  let wrapped := inputs.map Step.Ty.toSDF some
   have prop := by
-    simp [inputs_all_somes, transformed]
     induction inp with
     | nil =>
       cases inputs
@@ -393,16 +388,16 @@ def transformInputs {inp : List Step.Ty} (inputs : DenoStreamsList inp)
       apply And.intro
       · simp
       · apply ih
-  ⟨transformed, prop⟩
+  ⟨wrapped, prop⟩
 
 theorem compile_correct {inp : List Step.Ty} {out : Step.Ty} {prog : Step.Prog inp out}
   (inputs : DenoStreamsList inp) :
-  prog.denote inputs = prog.filteredOutput (transformInputs inputs).val (transformInputs inputs).property :=
+  prog.denote inputs = prog.filteredOutput (wrapInputs inputs) :=
   match inp, out, prog with
   | _, _, .id => by
     simp only [Step.Prog.denote, Step.Prog.filteredOutput, Step.Prog.getThroughPut, Nat.mul_one]
-    have := id_output_eq ((transformInputs inputs).prop)
-    have : (λ i => (Option.get (getOutput Step.Prog.id (↑(transformInputs inputs)) i) (by cases inputs; rw [this]; simp)))
+    have := id_output_eq (wrapInputs inputs)
+    have : (λ i => (Option.get (getOutput Step.Prog.id ((wrapInputs inputs)) i) (by cases inputs; rw [this]; simp)))
             = λ i => (inputs.get .head) i := by
       funext i
       simp_rw [this]
