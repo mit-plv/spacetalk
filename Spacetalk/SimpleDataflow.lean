@@ -1,3 +1,4 @@
+import Spacetalk.BoundedQueue
 import Spacetalk.Graph
 
 namespace SimpleDataflow
@@ -8,6 +9,10 @@ deriving DecidableEq
 
 inductive Ty
   | option : Prim → Ty
+deriving DecidableEq
+
+inductive Mem
+  | queue : Prim → Nat → Mem
 deriving DecidableEq
 
 @[reducible]
@@ -32,6 +37,18 @@ def Ty.default : (ty : Ty) → ty.denote
 instance : Denote Ty where
   denote := Ty.denote
   default := Ty.default
+
+@[reducible]
+def Mem.denote : Mem → Type
+  | queue p n => BoundedQueue p.denote n
+
+@[simp]
+def Mem.default : (m : Mem) → m.denote
+  | queue _ n => .empty n
+
+instance : Denote Mem where
+  denote := Mem.denote
+  default := Mem.default
 
 abbrev BitVecPrim (w : Nat) := Prim.bitVec w
 abbrev BoolPrim := BitVecPrim 1
@@ -88,12 +105,12 @@ def Pipeline.eval : Pipeline α β → (DenoList α → DenoList β)
         b
     [res]ₕ
 
-abbrev Ops (inputs outputs state : List Ty) :=
-  Pipeline (inputs ++ state) (outputs ++ state)
+abbrev Ops (inputs outputs : List Ty) (state : List Mem) :=
+  Pipeline inputs outputs
 
 instance : NodeOps Ops where
-  eval := λ pipeline inputs state => (pipeline.eval (inputs ++ₕ state)).split
+  eval := λ pipeline inputs state => (pipeline.eval (inputs), )
 
-abbrev DataflowMachine := DataflowGraph Ty Ops
+abbrev DataflowMachine := DataflowGraph (σ := Mem) Ops
 
 end SimpleDataflow
