@@ -1,7 +1,5 @@
-import Mathlib.Data.Vector.Defs
 import Mathlib.Data.Stream.Defs
-import Mathlib.Data.List.Range
-import Mathlib.Tactic.Linarith.Frontend
+import Mathlib.Data.Vector.Basic
 
 import Spacetalk.HList
 
