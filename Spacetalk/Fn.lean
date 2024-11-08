@@ -1,11 +1,23 @@
 import Lean
 
+abbrev Result := Except String
+
+def Option.toResult (err : String) : Option α → Result α
+  | some v => .ok v
+  | none => .error err
+
 namespace Fn
 
   inductive Ty
     | bool
     | int
-  deriving BEq
+  deriving BEq, Repr
+
+  instance : ToString Ty where
+    toString t :=
+      match t with
+        | .bool => "bool"
+        | .int => "int"
 
   inductive BinOp
     | add
@@ -34,27 +46,35 @@ namespace Fn
   def Ctx.empty : Ctx :=
     ⟨.empty, .empty⟩
 
-  def BinOp.ty (x y : Ty) : BinOp → Option Ty
-    | add | sub => if x == .int && y == .int then some .int else none
-    | eq => if x == y then some .bool else none
+  def BinOp.ty (x y : Ty) : BinOp → Result Ty
+    | add | sub =>
+      if x == .int && y == .int then
+        .ok .int
+      else
+        .error s!"arith op with {x} ⊕ {y}"
+    | eq =>
+      if x == y then
+        .ok .bool
+      else
+        .error s!"eq op with {x} == {y}"
 
-  def Exp.ty (ctx : Ctx) : Exp → Option Ty
-    | const _ => some .int
-    | var name => ctx.vars.get? name
+  def Exp.ty (ctx : Ctx) : Exp → Result Ty
+    | const _ => .ok .int
+    | var name => (ctx.vars.get? name).toResult s!"var '{name}' not found"
     | app f args => do
-      let rec map (es : List Exp) : Option (List Ty) :=
+      let sig ← (ctx.fns.get? f).toResult s!"fn '{f}' not found"
+      let rec map (es : List Exp) : Result (List Ty) :=
         match es with
-        | [] => some []
+        | [] => .ok []
         | h :: t => do
           let h ← Exp.ty ctx h
           let t ← map t
-          (h :: t)
+          .ok (h :: t)
       let args ← map args
-      let sig ← ctx.fns.get? f
       if args == sig.fst then
-        sig.snd
+        .ok sig.snd
       else
-        none
+        .error s!"args {args} doesn't match sig {sig.fst}"
     | binop bop x y => do
       let x ← x.ty ctx
       let y ← y.ty ctx
@@ -63,10 +83,12 @@ namespace Fn
       let cond ← cond.ty ctx
       let tt ← tt.ty ctx
       let ff ← ff.ty ctx
-      if cond == .bool && tt == ff then
-        tt
+      if cond != .bool then
+        .error s!"ite cond == {cond}"
+      else if tt != ff then
+        .error s!"ite branches {tt} != {ff}"
       else
-        none
+        .ok tt
 
     def Exp.recurses (self : String) : Exp → Bool
       | const _ | var _ => false
@@ -99,27 +121,29 @@ namespace Fn
       | ite cond tt ff =>
         !cond.recurses self && tt.onlyTailRecursion self && ff.onlyTailRecursion self
 
-    def Fn.ty (ctx : Ctx) (fn : Fn) : Option Fn := do
+    def Fn.ty (ctx : Ctx) (fn : Fn) : Result Fn := do
       let vars : Std.HashMap String Ty :=
         fn.params.foldl (λ vars (name, t) => vars.insert name t) .empty
       let ctx := {ctx with vars := vars}
       let ret ← fn.body.ty ctx
-      if ret == fn.ret && fn.body.onlyTailRecursion fn.name then
-        fn
+      if ret != fn.ret then
+        .error s!"ret doesn't match {ret} != {fn.ret}"
+      else if !fn.body.onlyTailRecursion fn.name then
+        .error s!"{fn.name} contains non-tail-recursion"
       else
-        none
+        .ok fn
 
-    def Prog.ty (prog : Prog) : Option (List Ty × Ty) := do
+    def Prog.ty (prog : Prog) : Result (List Ty × Ty) := do
       -- Type check functions from top to bottom
       let _ ← prog.foldlM
         (λ ctx fn =>
           let input_tys := fn.params.map Prod.snd
           let ctx := {ctx with fns := ctx.fns.insert fn.name (input_tys, fn.ret)}
-          fn.body.ty ctx >>= λ _ => some ctx
+          fn.ty ctx >>= λ _ => .ok ctx
           )
         .empty
-      let main ← prog.find? (·.name == "main")
-      (main.params.map Prod.snd, main.ret)
+      let main ← (prog.find? (·.name == "main")).toResult "no main function found"
+      .ok (main.params.map Prod.snd, main.ret)
 
   namespace DSL
     open Lean Elab Meta
@@ -247,6 +271,7 @@ namespace Fn
     syntax fn_stx+ : prog
 
     def emptyProg : Prog := []
+    def Prog.cons (f : Fn) (p : Prog) : Prog := f :: p
 
     def elabProg : Syntax → MetaM Expr
       | `(prog| $f:fn_stx $fs:fn_stx*) => do
@@ -254,13 +279,13 @@ namespace Fn
         let fs ← fs.mapM elabFn
         let fs := f :: fs.toList
         fs.foldr
-          (λ h t => t >>= λ t => mkAppM ``List.cons #[h, t])
+          (λ h t => t >>= λ t => mkAppM ``Prog.cons #[h, t])
           (return .const ``emptyProg [])
       | _ => throwUnsupportedSyntax
 
     elab p:prog : term => elabProg p
 
-    #reduce
+    def add :=
       fn add (x : int) (y : int) : int :=
         if x == 0 then
           y
@@ -272,6 +297,8 @@ namespace Fn
       fn main (x : int) (y : int) : int :=
         add(x, y)
       end
+
+    #eval add.ty
 
   end DSL
 
