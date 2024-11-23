@@ -8,6 +8,8 @@ def Option.toResult (err : String) : Option α → Result α
 
 namespace Fn
 
+  -- Syntax
+
   inductive Ty
     | bool
     | int
@@ -38,6 +40,8 @@ namespace Fn
     body : Exp
 
   abbrev Prog := List Fn
+
+  -- Typing rules
 
   structure Ctx where
     vars : Std.HashMap String Ty
