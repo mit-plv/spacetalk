@@ -37,7 +37,10 @@ namespace Df
     val : Ty
     tags : List Tag
 
+  @[simp]
   def Nid.fst (n : Nid) : Tag := ⟨n, 0⟩
+
+  @[simp]
   def Nid.snd (n : Nid) : Tag := ⟨n, 1⟩
 
   inductive Inp
@@ -48,6 +51,11 @@ namespace Df
     | input : List Tag → NodeOp
     | output : Inp → NodeOp
     | plus : Inp → Inp → List Tag → NodeOp
+
+  @[simp]
+  def NodeOp.isOutput : NodeOp → Bool
+    | .output _ => true
+    | _ => false
 
   structure Node where
     id : Nid
@@ -74,7 +82,7 @@ namespace Df
 
   inductive Node.Step : Node → State → State → Prop
     | input : {nid : Nid} → {ts : List Tag} → {s : State}
-      → (h : (s nid.fst) ≠ [])
+      → (h : s nid.fst ≠ [])
       → Node.Step ⟨nid, .input ts⟩ s (s ↤ nid.fst ↦↦ ⟨(s nid.fst).head h, ts⟩)
     | outputConst : {nid : Nid} → {s : State} → {c : Ty}
       → s nid.fst = []
@@ -99,39 +107,6 @@ namespace Df
       → node.Step s1 s2
       → DFG.Step dfg s2 s3
       → DFG.Step dfg s1 s3
-
-  theorem DFG.confluence {a b c : State} (dfg : DFG)
-    : dfg.Step a b → dfg.Step a c → ∃ d, dfg.Step b d ∧ dfg.Step c d
-    | .refl, .refl => ⟨a, .intro .refl .refl⟩
-    | .refl, s => ⟨c, .intro s .refl⟩
-    | s, .refl => ⟨b, .intro .refl s⟩
-    | .step n1 n1s gs1, .step n2 n2s gs2 => by
-      cases n1s <;> cases n2s
-      all_goals sorry
-
-  inductive Node.final : Node → State → Prop
-    | input : {nid : Nid} → {ts : List Tag} → {s : State}
-      → s nid.fst = []
-      → Node.final ⟨nid, .input ts⟩ s
-    | outputConst : {nid : Nid} → {s : State} → {c : Ty}
-      → Node.final ⟨nid, .output (.const c)⟩ s
-    | outputPort : {nid : Nid} → {s : State} → {ret : Ty}
-      → s nid.fst = [ret]
-      → Node.final ⟨nid, .output .port⟩ s
-    | plusConstConst : {nid : Nid} → {ts : List Tag} → {s : State} → {x y : Ty}
-      → Node.final ⟨nid, .plus (.const x) (.const y) ts⟩ s
-    | plusPortConst : {nid : Nid} → {ts : List Tag} → {s : State} → {y : Ty}
-      → s nid.fst = []
-      → Node.final ⟨nid, .plus .port (.const y) ts⟩ s
-    | plusConstPort : {nid : Nid} → {ts : List Tag} → {s : State} → {x : Ty}
-      → s nid.snd = []
-      → Node.final ⟨nid, .plus (.const x) .port ts⟩ s
-    | plusPortPort : {nid : Nid} → {ts : List Tag} → {s : State}
-      → s nid.fst = [] ∧ s nid.snd = []
-      → Node.final ⟨nid, .plus .port .port ts⟩ s
-
-  def DFG.final (dfg : DFG) (s : State) : Prop :=
-    ∀ n ∈ dfg, n.final s
 end Df
 
 namespace Compiler
@@ -216,13 +191,64 @@ namespace Compiler
   def compile (e : Arith.Exp) : MarkedDFG :=
     (compileAux 0 e).fst
 
-  def initialState (env : Arith.Env) (vars : VarMap) : Df.State :=
-    vars.fold (λ s name tag => s ↦ ⟨env name, tag⟩) Df.State.empty
+  def MarkedDFG.initialState (dfg : MarkedDFG) (env : Arith.Env) : Df.State :=
+    dfg.vars.fold (λ s name tag => s ↦ ⟨env name, tag⟩) .empty
+
+  @[simp]
+  def MarkedDFG.finalState (dfg : MarkedDFG) (v : Ty) : Df.State :=
+    λ t => if t = dfg.ret then [v] else []
+
+  -- Proofs
+
+  lemma ret_is_output {e : Arith.Exp}
+    : ∀ node, node ∈ (compile e).dfg ∧ node.id = (compile e).ret.node → node.op.isOutput = true := by
+    intro node h_mem
+    sorry
+
+  theorem compile_value_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
+    : Arith.Eval env e v
+      → (compile e).dfg.Step ((compile e).initialState env) ((compile e).finalState v) :=
+    sorry
+
+  theorem compile_confluence {e : Arith.Exp} {a b c : Df.State}
+    : (compile e).dfg.Step a b → (compile e).dfg.Step a c
+        → ∃ d, (compile e).dfg.Step b d ∧ (compile e).dfg.Step c d
+    | .refl, .refl => ⟨a, .intro .refl .refl⟩
+    | .refl, s => ⟨c, .intro s .refl⟩
+    | s, .refl => ⟨b, .intro .refl s⟩
+    | .step n1 n1s gs1, .step n2 n2s gs2 => by
+      cases n1s <;> cases n2s
+      all_goals sorry
+
+  lemma final_state_halts {e : Arith.Exp} {v : Ty}
+    : ∀ s, (compile e).dfg.Step ((compile e).finalState v) s → s = (compile e).finalState v := by
+    intro s step
+    cases step with
+    | refl => rfl
+    | step h_mem ns gs =>
+      cases ns with
+      | input h =>
+        rename_i nid ts
+        have : nid.fst = (compile e).ret := by simp at h; exact h
+        have : nid = (compile e).ret.node := (Df.Tag.mk.inj this).left
+        have := ret_is_output ⟨nid, .input ts⟩ ⟨h_mem, this⟩
+        simp at this
+      | outputConst h => sorry
+      | plusConstConst h1 h2 => sorry
+      | plusPortConst h1 h2 => sorry
+      | plusConstPort h1 h2 => sorry
+      | plusPortPort h1 h2 => sorry
 
   theorem compile_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
-    (eval : Arith.Eval env e v) (finalState : Df.State) :
-    Df.DFG.Step (compile e).dfg (initialState env (compile e).vars) finalState
-      ∧ finalState (compile e).ret = [v] :=
-    sorry
+    : Arith.Eval env e v
+      → ∀ s, (compile e).dfg.Step ((compile e).initialState env) s
+              → (compile e).dfg.Step s ((compile e).finalState v) := by
+    intro as s ds
+    have := compile_confluence ds (compile_value_correct as)
+    obtain ⟨w, h⟩ := this
+    obtain ⟨left, right⟩ := h
+    have := final_state_halts w right
+    rw [this] at left
+    exact left
 
 end Compiler
