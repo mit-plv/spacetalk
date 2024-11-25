@@ -200,10 +200,84 @@ namespace Compiler
 
   -- Proofs
 
-  lemma ret_is_output {e : Arith.Exp}
-    : ∀ node, node ∈ (compile e).dfg ∧ node.id = (compile e).ret.node → node.op.isOutput = true := by
-    intro node h_mem
+  abbrev dfg_id_lt_max (dfg : Df.DFG) (max : Df.Nid) :=
+    ∀ node ∈ dfg, node.id < max
+
+  lemma merge_id_lt_max {dfg1 dfg2 : MarkedDFG} {nid : Df.Nid}
+    (maxId : Df.Nid) (h1 : dfg_id_lt_max dfg1.dfg maxId) (h2: dfg_id_lt_max dfg2.dfg maxId)
+    : dfg_id_lt_max (merge dfg1 dfg2 nid).fst maxId := by
     sorry
+
+  lemma compile_id_lt_max {e : Arith.Exp} {initialMax : Df.Nid}
+    : dfg_id_lt_max (compileAux initialMax e).fst.dfg (compileAux initialMax e).snd := by
+    sorry
+
+  lemma compile_maxId_lt {e : Arith.Exp} {initialMax : Df.Nid}
+    : initialMax < (compileAux initialMax e).snd := by
+    cases e <;> simp [compileAux]
+    rename_i e1 e2
+    trans (compileAux initialMax e1).2
+    exact compile_maxId_lt
+    trans (compileAux (compileAux initialMax e1).2 e2).2
+    exact compile_maxId_lt
+    simp
+
+  abbrev MarkedDFG.ret_iff_output (dfg : MarkedDFG) :=
+    ∀ node ∈ dfg.dfg, node.id = dfg.ret.node ↔ node.op.isOutput = true
+
+  -- lemma merge_no_output {dfg1 dfg2 : MarkedDFG} {nid : Df.Nid}
+  --   : dfg1.ret_iff_output → dfg2.ret_iff_output
+  --     → ∀ node ∈ (merge dfg1 dfg2 nid).fst, node.op.isOutput = false :=
+  --   sorry
+
+  theorem Nat.succ_lt_false {x : Nat} : x + 1 < x → False := by simp
+  theorem Df.Nid.succ_lt_false {x : Df.Nid} : x + 1 < x → False := Nat.succ_lt_false
+
+  lemma compile_ret_iff_output {e : Arith.Exp} : (compile e).ret_iff_output := by
+    intro node h_mem
+    apply Iff.intro
+    · intro h_ret
+      cases e with
+      | const c =>
+        have : node = ⟨0, .output (.const c)⟩ := by
+          simp only [compile, compileAux, Df.Nid.fst, zero_add, List.mem_singleton, h_mem,
+            and_true] at h_mem
+          exact h_mem
+        rw [this]
+        simp
+      | var _ =>
+        simp_all only [compile, compileAux, zero_add, Df.Nid.fst, List.mem_cons,
+          List.mem_singleton]
+        cases h_mem <;> simp_all
+      | plus e1 e2 =>
+        simp_all only [compile, compileAux, Df.Nid.fst, List.mem_cons, Df.NodeOp.isOutput]
+        cases h_mem with
+        | inl h =>
+          simp_all
+        | inr h =>
+          cases h with
+          | inl h => rw [h]
+          | inr h =>
+            generalize h_max0 : (compileAux 0 e1).snd = maxId0 at *
+            generalize h_max1 : (compileAux maxId0 e2).snd = maxId1 at *
+            have e1_id_lt_max : dfg_id_lt_max (compileAux 0 e1).fst.dfg maxId0 := by
+              rw [←h_max0]
+              exact compile_id_lt_max
+            have e2_id_lt_max : dfg_id_lt_max (compileAux maxId0 e2).fst.dfg maxId1 := by
+              rw [←h_max1]
+              exact compile_id_lt_max
+            have max0_lt_max1 : maxId0 < maxId1 := by
+              rw [←h_max1]
+              exact compile_maxId_lt
+            have e1_id_lt_max : dfg_id_lt_max (compileAux 0 e1).fst.dfg maxId1 :=
+              λ node h_mem => LT.lt.trans (e1_id_lt_max node h_mem) max0_lt_max1
+            have := merge_id_lt_max maxId1 (nid := maxId1) e1_id_lt_max e2_id_lt_max
+            have := this node h
+            rw [h_ret] at this
+            exfalso
+            exact Df.Nid.succ_lt_false this
+    · intro h_output
+      sorry
 
   theorem compile_value_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
     : Arith.Eval env e v
@@ -231,7 +305,7 @@ namespace Compiler
         rename_i nid ts
         have : nid.fst = (compile e).ret := by simp at h; exact h
         have : nid = (compile e).ret.node := (Df.Tag.mk.inj this).left
-        have := ret_is_output ⟨nid, .input ts⟩ ⟨h_mem, this⟩
+        have := (compile_ret_iff_output ⟨nid, .input ts⟩ h_mem).mp this
         simp at this
       | outputConst h => sorry
       | plusConstConst h1 h2 => sorry
@@ -239,6 +313,8 @@ namespace Compiler
       | plusConstPort h1 h2 => sorry
       | plusPortPort h1 h2 => sorry
 
+  -- Note: This definition doesn't handle concurrency.
+  --       We need to prove that nothing can go wrong if multiple nodes fire at once.
   theorem compile_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
     : Arith.Eval env e v
       → ∀ s, (compile e).dfg.Step ((compile e).initialState env) s
