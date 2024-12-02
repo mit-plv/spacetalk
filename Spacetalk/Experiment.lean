@@ -80,25 +80,16 @@ namespace Df
   infixl:100 " ↦ " => State.push
   infixl:100 " ↦↦ " => State.pushAll
 
+  inductive Inp.Step : Inp → Tag → State → State → Ty → Prop
+    | port : (h : s tag ≠ []) → Inp.Step .port tag s (s ↤ tag) ((s tag).head h)
+    | const : Inp.Step (.const v) tag s s v
+
   inductive Node.Step : Node → State → State → Prop
-    | input : {nid : Nid} → {ts : List Tag} → {s : State}
-      → (h : s nid.fst ≠ [])
+    | input : (h : s nid.fst ≠ [])
       → Node.Step ⟨nid, .input ts⟩ s (s ↤ nid.fst ↦↦ ⟨(s nid.fst).head h, ts⟩)
-    | outputConst : {nid : Nid} → {s : State} → {c : Ty}
-      → s nid.fst = []
-      → Node.Step ⟨nid, .output (.const c)⟩ s (s ↦ ⟨c, nid.fst⟩)
-    | plusConstConst : {nid : Nid} → {ts : List Tag} → {s : State} → {e1 e2 : Inp}
-      → (h1 : e1 = .const x) → (h2 : e2 = .const y)
-      → Node.Step ⟨nid, .plus e1 e2 ts⟩ s (s ↦↦ ⟨x + y, ts⟩)
-    | plusPortConst : {nid : Nid} → {ts : List Tag} → {s : State} → {e1 e2 : Inp}
-      → (h1 : s nid.fst ≠ []) → (h2 : e2 = .const y)
-      → Node.Step ⟨nid, .plus e1 e2 ts⟩ s (s ↤ nid.fst ↦↦ ⟨((s nid.fst).head h1) + y, ts⟩)
-    | plusConstPort : {nid : Nid} → {ts : List Tag} → {s : State} → {e1 e2 : Inp}
-      → (h1 : e1 = .const x) → (h2 : s nid.snd ≠ [])
-      → Node.Step ⟨nid, .plus e1 e2 ts⟩ s (s ↤ nid.snd ↦↦ ⟨x + ((s nid.snd).head h2), ts⟩)
-    | plusPortPort : {nid : Nid} → {ts : List Tag} → {s : State} → {e1 e2 : Inp}
-      → (h1 : s nid.fst ≠ []) → (h2 : s nid.snd ≠ [])
-      → Node.Step ⟨nid, .plus e1 e2 ts⟩ s (s ↤ nid.fst ↤ nid.snd ↦↦ ⟨((s nid.fst).head h1) + ((s nid.snd).head h2), ts⟩)
+    | outputConst : s nid.fst = [] → Node.Step ⟨nid, .output (.const c)⟩ s (s ↦ ⟨c, nid.fst⟩)
+    | plus : Inp.Step i1 nid.fst s1 s2 v1 → Inp.Step i2 nid.snd s2 s3 v
+      → Node.Step ⟨nid, .plus i1 i2 ts⟩ s1 (s3 ↦↦ ⟨v1 + v2, ts⟩)
 
   inductive DFG.Step : DFG → State → State → Prop
     | refl : DFG.Step dfg s s
@@ -308,10 +299,7 @@ namespace Compiler
         have := (compile_ret_iff_output ⟨nid, .input ts⟩ h_mem).mp this
         simp at this
       | outputConst h => sorry
-      | plusConstConst h1 h2 => sorry
-      | plusPortConst h1 h2 => sorry
-      | plusConstPort h1 h2 => sorry
-      | plusPortPort h1 h2 => sorry
+      | plus h_i1 h_i2 => sorry
 
   -- Note: This definition doesn't handle concurrency.
   --       We need to prove that nothing can go wrong if multiple nodes fire at once.
