@@ -1,4 +1,5 @@
 import Mathlib.Data.Vector.Basic
+import Std.Data.DHashMap.Internal.WF
 
 open Mathlib
 
@@ -101,7 +102,7 @@ namespace Df
 end Df
 
 namespace Compiler
-  abbrev VarMap := Std.HashMap String Df.Tag
+  abbrev VarMap := List (String × Df.Tag)
 
   structure MarkedDFG where
     dfg : Df.DFG
@@ -113,23 +114,12 @@ namespace Compiler
     | some ⟨_, .output i⟩ => i
     | _ => .port
 
-  def Df.Node.updateReturn (ret : Df.Tag) (newRet : Df.Tag) (node : Df.Node) : Df.Node :=
-    let replace t := if t = ret then newRet else t
-    {node with op :=
-      match node.op with
-      | .input ts => .input (ts.map replace)
-      | .output i => .output i
-      | .plus e1 e2 ts => .plus e1 e2 (ts.map replace)
-    }
-
-  def merge (g1 : MarkedDFG) (g2 : MarkedDFG) (nid : Df.Nid)
-    : Df.DFG × VarMap × Df.Inp × Df.Inp :=
-    let (dfg, vars) := g2.vars.fold (
-      λ (dfg, vars) s t2 =>
+  def mergeVarsAux (g1 : MarkedDFG) : Df.DFG × VarMap → String × Df.Tag → Df.DFG × VarMap :=
+    λ (dfg, vars) (s, t2) =>
         match dfg.find? (·.id = t2.node) with
         | some ⟨_, .input ts2⟩ =>
-          match g1.vars.get? s with
-          | some t1 =>
+          match g1.vars.find? (·.fst = s) with
+          | some (_, t1) =>
             let dfg := (dfg.filter (·.id ≠ t2.node)).map (
               λ node =>
                 if node.id = t1.node then
@@ -140,9 +130,24 @@ namespace Compiler
                   node
             )
             (dfg, vars)
-          | none => (dfg, vars.insert s t2)
+          | none => (dfg, (s, t2) :: vars)
         | _ => (dfg, vars)
-    ) (g1.dfg ++ g2.dfg, g1.vars)
+
+  def mergeVars (g1 g2 : MarkedDFG) : Df.DFG × VarMap :=
+    g2.vars.foldl (mergeVarsAux g1) (g1.dfg ++ g2.dfg, g1.vars)
+
+  def Df.Node.updateReturn (ret : Df.Tag) (newRet : Df.Tag) (node : Df.Node) : Df.Node :=
+    let replace t := if t = ret then newRet else t
+    {node with op :=
+      match node.op with
+      | .input ts => .input (ts.map replace)
+      | .output i => .output i
+      | .plus e1 e2 ts => .plus e1 e2 (ts.map replace)
+    }
+
+  def merge (g1 g2 : MarkedDFG) (nid : Df.Nid)
+    : Df.DFG × VarMap × Df.Inp × Df.Inp :=
+    let (dfg, vars) := mergeVars g1 g2
 
     -- Find the input edge of the orignal output nodes
     let ret1 := getRetInp dfg g1.ret.node
@@ -157,18 +162,17 @@ namespace Compiler
 
     -- Remove all output nodes
     let dfg := dfg.filter (λ node => match node.op with | .output _ => false | _ => true)
-
     (dfg, vars, ret1, ret2)
 
   def compileAux (maxNid : Df.Nid) : Arith.Exp → MarkedDFG × Df.Nid
     | .const c =>
       let dfg := [⟨maxNid, .output (.const c)⟩]
-      (⟨dfg, .empty, maxNid.fst⟩, maxNid + 1)
+      (⟨dfg, [], maxNid.fst⟩, maxNid + 1)
     | .var s =>
       let inpId := maxNid
       let outId := maxNid + 1
       let dfg := [⟨inpId, .input []⟩, ⟨outId, .output .port⟩]
-      let vars := Std.HashMap.empty.insert s maxNid.fst
+      let vars := [(s, maxNid.fst)]
       (⟨dfg, vars, outId.fst⟩, maxNid + 2)
     | .plus e1 e2 =>
       let (e1, maxNid) := compileAux maxNid e1
@@ -183,7 +187,7 @@ namespace Compiler
     (compileAux 0 e).fst
 
   def MarkedDFG.initialState (dfg : MarkedDFG) (env : Arith.Env) : Df.State :=
-    dfg.vars.fold (λ s name tag => s ↦ ⟨env name, tag⟩) .empty
+    dfg.vars.foldl (λ s (name, tag) => s ↦ ⟨env name, tag⟩) .empty
 
   @[simp]
   def MarkedDFG.finalState (dfg : MarkedDFG) (v : Ty) : Df.State :=
@@ -194,10 +198,53 @@ namespace Compiler
   abbrev dfg_id_lt_max (dfg : Df.DFG) (max : Df.Nid) :=
     ∀ node ∈ dfg, node.id < max
 
+  lemma mergeVarsAux_id_eq :
+    node ∈ (mergeVarsAux g1 (dfg, vars) (s, t2)).fst → ∃ node' ∈ dfg, node.id = node'.id := by
+    intro h_mem
+    simp_all only [mergeVarsAux]
+    aesop
+
+  lemma mergeVars_id_eq {dfg1 dfg2 : MarkedDFG} {node : Df.Node}
+    (h_mem : node ∈ (mergeVars dfg1 dfg2).fst)
+      : (∃ n1 ∈ dfg1.dfg, node.id = n1.id) ∨ (∃ n2 ∈ dfg2.dfg, node.id = n2.id) := by
+    have ⟨n, ⟨h_mem, h_id⟩⟩ : ∃ n ∈ dfg1.dfg ++ dfg2.dfg, node.id = n.id := by
+      apply List.foldlRecOn dfg2.vars (mergeVarsAux dfg1) (dfg1.dfg ++ dfg2.dfg, dfg1.vars)
+        (motive := λ (g, _) => ∀ n ∈ g, (∃ n' ∈ dfg1.dfg ++ dfg2.dfg, n.id = n'.id))
+      · aesop
+      · simp_all only [List.mem_append, Prod.forall]
+        intro dfg _ h _ _ _ nn h_mem_merge
+        obtain ⟨nn', hh⟩ := mergeVarsAux_id_eq h_mem_merge
+        aesop
+      · exact h_mem
+    aesop
+
+  lemma updateReturn_id_eq : (Df.Node.updateReturn ret tag node).id = node.id := by
+    simp only [Df.Node.updateReturn]
+
   lemma merge_id_lt_max {dfg1 dfg2 : MarkedDFG} {nid : Df.Nid}
     (maxId : Df.Nid) (h1 : dfg_id_lt_max dfg1.dfg maxId) (h2: dfg_id_lt_max dfg2.dfg maxId)
     : dfg_id_lt_max (merge dfg1 dfg2 nid).fst maxId := by
-    sorry
+    intro node h_mem
+    have : (∃ node1 ∈ dfg1.dfg, node.id = node1.id)
+           ∨ (∃ node2 ∈ dfg2.dfg, node.id = node2.id) := by
+      simp only [merge] at h_mem
+      have := (List.mem_filter.mp h_mem).left
+      -- TODO: Simplify this big split case
+      split at this
+      · obtain ⟨a_update_ret, ⟨h_mem, heq_update_ret⟩⟩ := List.mem_map.mp this
+        split at h_mem
+        · obtain ⟨a_update_vars, ⟨h_mem, heq_update_vars⟩⟩ := List.mem_map.mp h_mem
+          have := mergeVars_id_eq h_mem
+          aesop
+        · have := mergeVars_id_eq h_mem
+          aesop
+      · split at this
+        · obtain ⟨a_update_vars, ⟨h_mem, heq_update_vars⟩⟩ := List.mem_map.mp this
+          have := mergeVars_id_eq h_mem
+          aesop
+        · have := mergeVars_id_eq this
+          exact this
+    aesop
 
   lemma compile_id_lt_max {e : Arith.Exp} {initialMax : Df.Nid}
     : dfg_id_lt_max (compileAux initialMax e).fst.dfg (compileAux initialMax e).snd := by
@@ -219,7 +266,7 @@ namespace Compiler
   -- lemma merge_no_output {dfg1 dfg2 : MarkedDFG} {nid : Df.Nid}
   --   : dfg1.ret_iff_output → dfg2.ret_iff_output
   --     → ∀ node ∈ (merge dfg1 dfg2 nid).fst, node.op.isOutput = false :=
-  --   sorry
+  --   sorry1
 
   theorem Nat.succ_lt_false {x : Nat} : x + 1 < x → False := by simp
   theorem Df.Nid.succ_lt_false {x : Df.Nid} : x + 1 < x → False := Nat.succ_lt_false
@@ -301,12 +348,10 @@ namespace Compiler
       | outputConst h => sorry
       | plus h_i1 h_i2 => sorry
 
-  -- Note: This definition doesn't handle concurrency.
-  --       We need to prove that nothing can go wrong if multiple nodes fire at once.
   theorem compile_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
     : Arith.Eval env e v
       → ∀ s, (compile e).dfg.Step ((compile e).initialState env) s
-              → (compile e).dfg.Step s ((compile e).finalState v) := by
+            → (compile e).dfg.Step s ((compile e).finalState v) := by
     intro as s ds
     have := compile_confluence ds (compile_value_correct as)
     obtain ⟨w, h⟩ := this
