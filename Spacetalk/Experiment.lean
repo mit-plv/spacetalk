@@ -233,11 +233,8 @@ namespace Compiler
       split at this
       · obtain ⟨a_update_ret, ⟨h_mem, heq_update_ret⟩⟩ := List.mem_map.mp this
         split at h_mem
-        · obtain ⟨a_update_vars, ⟨h_mem, heq_update_vars⟩⟩ := List.mem_map.mp h_mem
-          have := mergeVars_id_eq h_mem
-          aesop
-        · have := mergeVars_id_eq h_mem
-          aesop
+        obtain ⟨a_update_vars, ⟨h_mem, heq_update_vars⟩⟩ := List.mem_map.mp h_mem
+        all_goals (have := mergeVars_id_eq h_mem; aesop)
       · split at this
         · obtain ⟨a_update_vars, ⟨h_mem, heq_update_vars⟩⟩ := List.mem_map.mp this
           have := mergeVars_id_eq h_mem
