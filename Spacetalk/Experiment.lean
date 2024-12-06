@@ -285,16 +285,43 @@ namespace Compiler
           · exact merge_id_lt_max maxId2 e1_ih e2_ih node h
           · simp
 
+  abbrev MarkedDFG.ret_if_output (dfg : MarkedDFG) :=
+    ∀ node ∈ dfg.dfg, node.op.isOutput = true → node.id = dfg.ret.node
+
   abbrev MarkedDFG.ret_iff_output (dfg : MarkedDFG) :=
     ∀ node ∈ dfg.dfg, node.id = dfg.ret.node ↔ node.op.isOutput = true
 
-  -- lemma merge_no_output {dfg1 dfg2 : MarkedDFG} {nid : Df.Nid}
-  --   : dfg1.ret_iff_output → dfg2.ret_iff_output
-  --     → ∀ node ∈ (merge dfg1 dfg2 nid).fst, node.op.isOutput = false :=
-  --   sorry1
+  lemma merge_no_output {dfg1 dfg2 : MarkedDFG} {nid : Df.Nid}
+    : dfg1.ret_if_output → dfg2.ret_if_output
+      → ∀ node ∈ (merge dfg1 dfg2 nid).fst, node.op.isOutput = false := by
+    simp_all only [merge]
+    aesop
 
   theorem Nat.succ_lt_false {x : Nat} : x + 1 < x → False := by simp
   theorem Df.Nid.succ_lt_false {x : Df.Nid} : x + 1 < x → False := Nat.succ_lt_false
+
+  lemma compileAux_ret_if_output {e : Arith.Exp} {maxId : Df.Nid}
+    : (compileAux maxId e).fst.ret_if_output := by
+    intro node h_mem
+    cases e with
+    | const _ =>
+      simp_all only [Df.NodeOp.isOutput, compile, compileAux]
+      aesop
+    | var _ =>
+      simp_all only [Df.NodeOp.isOutput, compile, compileAux]
+      aesop
+    | plus e1 e2 =>
+      simp_all only [Df.NodeOp.isOutput, compile, compileAux]
+      cases h_mem with
+      | head => simp_all
+      | tail _ h =>
+        cases h with
+        | head => simp
+        | tail _ h =>
+          have e1_ih := @compileAux_ret_if_output e1 maxId
+          have e2_ih := @compileAux_ret_if_output e2 (compileAux maxId e1).2
+          have := merge_no_output e1_ih e2_ih node h
+          simp_all
 
   lemma compile_ret_iff_output {e : Arith.Exp} : (compile e).ret_iff_output := by
     intro node h_mem
@@ -339,8 +366,7 @@ namespace Compiler
             rw [h_ret] at this
             exfalso
             exact Df.Nid.succ_lt_false this
-    · intro h_output
-      sorry
+    · exact compileAux_ret_if_output node h_mem
 
   theorem compile_value_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
     : Arith.Eval env e v
