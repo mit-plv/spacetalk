@@ -243,10 +243,6 @@ namespace Compiler
           exact this
     aesop
 
-  lemma compile_id_lt_max {e : Arith.Exp} {initialMax : Df.Nid}
-    : dfg_id_lt_max (compileAux initialMax e).fst.dfg (compileAux initialMax e).snd := by
-    sorry
-
   lemma compile_maxId_lt {e : Arith.Exp} {initialMax : Df.Nid}
     : initialMax < (compileAux initialMax e).snd := by
     cases e <;> simp [compileAux]
@@ -256,6 +252,38 @@ namespace Compiler
     trans (compileAux (compileAux initialMax e1).2 e2).2
     exact compile_maxId_lt
     simp
+
+  lemma compile_id_lt_max {e : Arith.Exp} {initialMax : Df.Nid}
+    : dfg_id_lt_max (compileAux initialMax e).fst.dfg (compileAux initialMax e).snd := by
+    intro node h_mem
+    cases e with
+    | const _ =>
+      simp_all [compileAux]
+    | var _ =>
+      simp_all only [compileAux]
+      aesop
+    | plus e1 e2 =>
+      simp_all only [compileAux]
+      cases h_mem with
+      | head => simp
+      | tail _ h =>
+        cases h with
+        | head => simp
+        | tail _ h =>
+          generalize h_maxId1 : (compileAux initialMax e1).2 = maxId1 at *
+          generalize h_maxId2 : (compileAux maxId1 e2).2 = maxId2 at *
+          have e1_ih := @compile_id_lt_max e1 initialMax
+          have e2_ih := @compile_id_lt_max e2 maxId1
+          rw [h_maxId1] at e1_ih
+          rw [h_maxId2] at e2_ih
+          have h_lt : maxId1 < maxId2 := by
+            rw [←h_maxId2]
+            exact compile_maxId_lt
+          have e1_ih : dfg_id_lt_max (compileAux initialMax e1).1.dfg maxId2 :=
+            λ node h_mem => Nat.lt_trans (e1_ih node h_mem) h_lt
+          apply Nat.lt_trans
+          · exact merge_id_lt_max maxId2 e1_ih e2_ih node h
+          · simp
 
   abbrev MarkedDFG.ret_iff_output (dfg : MarkedDFG) :=
     ∀ node ∈ dfg.dfg, node.id = dfg.ret.node ↔ node.op.isOutput = true
