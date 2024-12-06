@@ -368,6 +368,10 @@ namespace Compiler
             exact Df.Nid.succ_lt_false this
     · exact compileAux_ret_if_output node h_mem
 
+  lemma compile_ret_is_fst {nid : Df.Nid} {e : Arith.Exp}
+    : (compile e).ret.node = nid → (compile e).ret = nid.fst := by
+    cases e <;> aesop
+
   theorem compile_value_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
     : Arith.Eval env e v
       → (compile e).dfg.Step ((compile e).initialState env) ((compile e).finalState v) :=
@@ -396,8 +400,17 @@ namespace Compiler
         have : nid = (compile e).ret.node := (Df.Tag.mk.inj this).left
         have := (compile_ret_iff_output ⟨nid, .input ts⟩ h_mem).mp this
         simp at this
-      | outputConst h => sorry
-      | plus h_i1 h_i2 => sorry
+      | outputConst h =>
+        rename_i nid c
+        simp_all only [MarkedDFG.finalState]
+        have := (compile_ret_iff_output ⟨nid, .output (.const c)⟩ h_mem).mpr (by simp)
+        have : (compile e).ret = nid.fst := by
+          apply compile_ret_is_fst
+          simp_all
+        rw [this] at h
+        simp_all
+      | plus is1 is2 =>
+        sorry
 
   theorem compile_correct {e : Arith.Exp} {env : Arith.Env} {v : Ty}
     : Arith.Eval env e v
