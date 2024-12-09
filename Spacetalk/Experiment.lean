@@ -93,17 +93,15 @@ namespace Df
     | binOp : {op : BinOp} → (h1 : s nid.fst ≠ []) → (h1 : s nid.snd ≠ [])
       → Node.Step ⟨nid, .binOp op ts⟩ s (s ↤ nid.fst ↤ nid.snd ↦↦ ⟨op.denote v1 v2, ts⟩)
 
-  inductive DFG.MultiStep : DFG → State → State → Prop
-    | refl : DFG.MultiStep dfg s s
-    | step : {dfg : DFG} → {node : Node}
-      → node ∈ dfg
-      → node.Step s1 s2
-      → DFG.MultiStep dfg s2 s3
-      → DFG.MultiStep dfg s1 s3
+  inductive DFG.Step : DFG → State → State → Prop
+    | node : (node : Node) → node ∈ dfg → node.Step s1 s2 → DFG.Step dfg s1 s2
 
-  theorem DFG.node_step_subst {dfg : DFG} {node : Node} {s1 s2 s3 : State}
-    : node ∈ dfg → node.Step s1 s2 → s2 = s3 → DFG.MultiStep dfg s1 s3 :=
-    λ h_mem step heq => heq ▸ .step h_mem step .refl
+  abbrev DFG.MultiStep (dfg : DFG) := Relation.ReflTransGen dfg.Step
+
+  theorem DFG.multi_step_subst {dfg : DFG} {s1 s2 s3 : State}
+    (node : Node) (h_mem : node ∈ dfg) (step : node.Step s1 s2) (heq : s2 = s3)
+    : dfg.MultiStep s1 s3 :=
+    heq ▸ .single (.node node h_mem step)
 end Df
 
 namespace Compiler
@@ -364,7 +362,7 @@ namespace Compiler
     | var s =>
       cases eval
       rename_i h_v
-      apply DFG.node_step_subst (node := ⟨0, .input [⟨1, 0⟩]⟩)
+      apply DFG.multi_step_subst ⟨0, .input [⟨1, 0⟩]⟩
       · simp
       · apply Node.Step.input
         simp
@@ -382,19 +380,26 @@ namespace Compiler
     | .refl, .refl => ⟨a, .intro .refl .refl⟩
     | .refl, s => ⟨c, .intro s .refl⟩
     | s, .refl => ⟨b, .intro .refl s⟩
-    | .step n1 n1s gs1, .step n2 n2s gs2 => by
-      cases n1s <;> cases n2s
+    | .tail gs1 ns1, .tail gs2 ns2 => by
+      cases ns1
+      cases ns2
+      rename_i _ _ b c node1 h_mem1 ns1 node2 h_mem2 ns2
+      rename_i c' b'
+      cases ns1 <;> cases ns2
       all_goals sorry
 
   lemma final_state_halts {e : Exp} {v : Ty}
     : ∀ s, (compile e).dfg.MultiStep ((compile e).finalState v) s → s = (compile e).finalState v := by
     intro s step
-    cases step with
+    induction step with
     | refl => rfl
-    | step h_mem ns gs =>
+    | tail _ ns ih =>
+      rw [ih] at ns
+      cases ns
+      rename_i node h_mem ns
       cases ns with
       | input h =>
-        rename_i nid _
+        rename_i nid ts
         have : nid.fst = (compile e).ret := by aesop
         have : nid = (compile e).ret.node := (Port.mk.inj this).left
         have := (compile_ret_iff_output _ h_mem).mp this
