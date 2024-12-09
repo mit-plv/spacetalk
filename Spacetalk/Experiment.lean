@@ -64,17 +64,22 @@ namespace Df
 
   abbrev State := Port → List Ty
 
+  @[simp]
   def State.empty : State := λ _ => []
 
+  @[simp]
   def State.pop (s : State) (t : Port) : State :=
     λ t' => if t' = t then (s t).tail else s t'
 
+  @[simp]
   def State.push (s : State) (tok : Token) : State :=
     λ t' => if t' = tok.tag then (s tok.tag).concat tok.val else (s t')
 
+  @[simp]
   def State.pushAll (s : State) (tok : BToken) : State :=
     tok.tags.foldl (λ s tag => s.push ⟨tok.val, tag⟩) s
 
+  @[simp]
   def BinOp.denote : BinOp → Ty → Ty → Ty
     | plus => HAdd.hAdd
 
@@ -95,6 +100,10 @@ namespace Df
       → node.Step s1 s2
       → DFG.MultiStep dfg s2 s3
       → DFG.MultiStep dfg s1 s3
+
+  theorem DFG.node_step_subst {dfg : DFG} {node : Node} {s1 s2 s3 : State}
+    : node ∈ dfg → node.Step s1 s2 → s2 = s3 → DFG.MultiStep dfg s1 s3 :=
+    λ h_mem step heq => heq ▸ .step h_mem step .refl
 end Df
 
 namespace Compiler
@@ -159,7 +168,7 @@ namespace Compiler
     | .var s =>
       let inpId := maxNid
       let outId := maxNid + 1
-      let dfg := [⟨inpId, .input []⟩, ⟨outId, .output⟩]
+      let dfg := [⟨inpId, .input [Nid.fst 1]⟩, ⟨outId, .output⟩]
       let vars := [(s, maxNid.fst)]
       (⟨dfg, vars, outId.fst⟩, maxNid + 2)
     | .plus e1 e2 =>
@@ -175,6 +184,7 @@ namespace Compiler
   def compile (e : Exp) : MarkedDFG :=
     (compileAux 0 e).fst
 
+  @[simp]
   def MarkedDFG.initialState (dfg : MarkedDFG) (env : Env) : State :=
     dfg.vars.foldl (λ s (name, tag) => s ↦ ⟨env name, tag⟩) .empty
 
@@ -340,10 +350,31 @@ namespace Compiler
     simp only [compile, Nid.fst]
     cases e <;> aesop
 
+  lemma compile_plus_correct {e1 e2 : Exp} {env : Env} {x y : Ty}
+    : (compile e1).dfg.MultiStep ((compile e1).initialState env) ((compile e1).finalState x)
+      → (compile e2).dfg.MultiStep ((compile e2).initialState env) ((compile e2).finalState y)
+        → (compile (e1.plus e2)).dfg.MultiStep ((compile (e1.plus e2)).initialState env) ((compile (e1.plus e2)).finalState (x + y)) := by
+    sorry
+
   theorem compile_value_correct {e : Exp} {env : Env} {v : Ty}
     : Eval env e v
-      → (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
-    sorry
+      → (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) := by
+    intro eval
+    cases e with
+    | var s =>
+      cases eval
+      rename_i h_v
+      apply DFG.node_step_subst (node := ⟨0, .input [⟨1, 0⟩]⟩)
+      · simp
+      · apply Node.Step.input
+        simp
+      · aesop
+    | plus e1 e2 =>
+      cases eval
+      rename_i _ _ eval1 eval2
+      apply compile_plus_correct
+      · exact compile_value_correct eval1
+      · exact compile_value_correct eval2
 
   theorem compile_confluence {e : Exp} {a b c : State}
     : (compile e).dfg.MultiStep a b → (compile e).dfg.MultiStep a c
@@ -363,10 +394,10 @@ namespace Compiler
     | step h_mem ns gs =>
       cases ns with
       | input h =>
-        rename_i nid ts
-        have : nid.fst = (compile e).ret := by simp at h; exact h
+        rename_i nid _
+        have : nid.fst = (compile e).ret := by aesop
         have : nid = (compile e).ret.node := (Port.mk.inj this).left
-        have := (compile_ret_iff_output ⟨nid, .input ts⟩ h_mem).mp this
+        have := (compile_ret_iff_output _ h_mem).mp this
         simp at this
       | binOp h1 h2 =>
         rename_i nid _ _ _ _
