@@ -114,6 +114,18 @@ namespace Compiler
     vars : VarMap
     ret : Port
 
+  theorem DFG.MultiStep.cons {s1 s2 : State} {dfg : DFG} (node : Node)
+    (step : dfg.MultiStep s1 s2) : DFG.MultiStep (node :: dfg) s1 s2 := by
+    induction step with
+    | refl => rfl
+    | tail _ tl ih =>
+      cases tl
+      rename_i node h_mem ns
+      apply Relation.ReflTransGen.tail ih
+      apply DFG.Step.node node
+      · exact List.mem_cons.mpr (Or.intro_right _ h_mem)
+      · exact ns
+
   -- Merge consumers of input nodes that map to the same variable
   @[simp]
   def mergeVarsAux (g1 : MarkedDFG) : DFG × VarMap → String × Port → DFG × VarMap :=
@@ -152,11 +164,9 @@ namespace Compiler
   def mergeTwo (g1 g2 : MarkedDFG) (nid : Nid)
     : DFG × VarMap :=
     let (dfg, vars) := mergeVars g1 g2
-
     -- Update links to the original output nodes
     let dfg := dfg.map (Node.updateReturn g1.ret nid.fst)
     let dfg := dfg.map (Node.updateReturn g2.ret nid.snd)
-
     -- Remove all output nodes
     let dfg := dfg.filter (λ node => match node.op with | .output => false | _ => true)
     (dfg, vars)
@@ -166,7 +176,7 @@ namespace Compiler
     | .var s =>
       let inpId := maxNid
       let outId := maxNid + 1
-      let dfg := [⟨inpId, .input [Nid.fst 1]⟩, ⟨outId, .output⟩]
+      let dfg := [⟨inpId, .input [Nid.fst outId]⟩, ⟨outId, .output⟩]
       let vars := [(s, maxNid.fst)]
       (⟨dfg, vars, outId.fst⟩, maxNid + 2)
     | .plus e1 e2 =>
@@ -183,8 +193,12 @@ namespace Compiler
     (compileAux 0 e).fst
 
   @[simp]
+  def VarMap.initialState (vars : VarMap) (env : Env) : State :=
+    vars.foldl (λ s (name, tag) => s ↦ ⟨env name, tag⟩) .empty
+
+  @[simp]
   def MarkedDFG.initialState (dfg : MarkedDFG) (env : Env) : State :=
-    dfg.vars.foldl (λ s (name, tag) => s ↦ ⟨env name, tag⟩) .empty
+    dfg.vars.initialState env
 
   @[simp]
   def MarkedDFG.finalState (dfg : MarkedDFG) (v : Ty) : State :=
@@ -348,31 +362,49 @@ namespace Compiler
     simp only [compile, Nid.fst]
     cases e <;> aesop
 
-  lemma compile_plus_correct {e1 e2 : Exp} {env : Env} {x y : Ty}
-    : (compile e1).dfg.MultiStep ((compile e1).initialState env) ((compile e1).finalState x)
-      → (compile e2).dfg.MultiStep ((compile e2).initialState env) ((compile e2).finalState y)
-        → (compile (e1.plus e2)).dfg.MultiStep ((compile (e1.plus e2)).initialState env) ((compile (e1.plus e2)).finalState (x + y)) := by
+  lemma mergeTwo_eval {e1 e2 : Exp} {env : Env} {x y : Ty} {maxId maxId1 maxId2 : Nid}
+    : (compileAux maxId e1).1.dfg.MultiStep ((compileAux maxId e1).1.initialState env) ((compileAux maxId e1).1.finalState x)
+      → (compileAux maxId1 e2).1.dfg.MultiStep ((compileAux maxId1 e2).1.initialState env) ((compileAux maxId1 e2).1.finalState y)
+      → (mergeTwo (compileAux maxId e1).1 (compileAux maxId1 e2).1 maxId2).1.MultiStep
+          ((mergeTwo (compileAux maxId e1).1 (compileAux maxId1 e2).1 maxId2).2.initialState env)
+          (.empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩) := by
+    intro h1 h2
+
     sorry
 
-  theorem compile_value_correct {e : Exp} {env : Env} {v : Ty}
+  theorem compileAux_value_correct {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
     : Eval env e v
-      → (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) := by
+      → (compileAux maxId e).fst.dfg.MultiStep ((compileAux maxId e).fst.initialState env) ((compileAux maxId e).fst.finalState v) := by
     intro eval
     cases e with
     | var s =>
       cases eval
       rename_i h_v
-      apply DFG.multi_step_subst ⟨0, .input [⟨1, 0⟩]⟩
+      apply DFG.multi_step_subst ⟨maxId, .input [⟨maxId + 1, 0⟩]⟩
       · simp
       · apply Node.Step.input
         simp
       · aesop
     | plus e1 e2 =>
+      simp only [compileAux]
+      generalize maxId1_eq : (compileAux maxId e1).2 = maxId1
+      generalize maxId2_eq : (compileAux maxId1 e2).2 = maxId2
       cases eval
-      rename_i _ _ eval1 eval2
-      apply compile_plus_correct
-      · exact compile_value_correct eval1
-      · exact compile_value_correct eval2
+      rename_i x y eval1 eval2
+      trans (.empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩)
+      · apply DFG.MultiStep.cons
+        apply DFG.MultiStep.cons
+        apply mergeTwo_eval
+        · exact compileAux_value_correct eval1
+        · exact compileAux_value_correct eval2
+      · apply DFG.multi_step_subst ⟨maxId2, .binOp .plus [(maxId2 + 1).fst]⟩
+        · simp
+        · apply Node.Step.binOp (v1 := x) (v2 := y) <;> simp
+        · aesop
+
+  theorem compile_value_correct {e : Exp} {env : Env} {v : Ty} (eval : Eval env e v)
+    : (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
+    compileAux_value_correct eval
 
   theorem compile_confluence {e : Exp} {a b c : State}
     : (compile e).dfg.MultiStep a b → (compile e).dfg.MultiStep a c
