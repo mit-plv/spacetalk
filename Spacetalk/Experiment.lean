@@ -194,7 +194,25 @@ namespace Compiler
 
   @[simp]
   def VarMap.initialState (vars : VarMap) (env : Env) : State :=
-    vars.foldl (λ s (name, tag) => s ↦ ⟨env name, tag⟩) .empty
+    vars.foldl (λ s (name, port) => s ↦ ⟨env name, port⟩) .empty
+
+  theorem List.foldl_induction {f : α → β → α} (init : α) (l : List β)
+    (P : α → Prop)
+    (h : P init)
+    (ih : ∀ agg, ∀ x ∈ l, P agg → P (f agg x))
+    : P (l.foldl f init) :=
+    match l with
+    | [] => h
+    | hd :: tl =>
+      List.foldl_induction (f init hd) tl P (ih init hd (by simp_all) h)
+        (λ agg x h_mem h => ih agg x (by simp_all) h)
+
+  lemma ret_not_in_initial_state {ret : Port} {vars : VarMap} {env : Env}
+    (h : ∀ var ∈ vars, ret ≠ var.2) : (vars.initialState env) ret = [] := by
+    apply List.foldl_induction State.empty vars (λ s => s ret = []) (f := λ s (name, port) => s ↦ ⟨env name, port⟩)
+    · rfl
+    · intro s b h_mem ih
+      simp_all [h b h_mem]
 
   @[simp]
   def MarkedDFG.initialState (dfg : MarkedDFG) (env : Env) : State :=
@@ -284,6 +302,10 @@ namespace Compiler
           · exact merge_id_lt_max maxId2 e1_ih e2_ih node h
           · simp
 
+  lemma vars_id_lt_max {e : Exp} {initialMax : Nid}
+    : ∀ var ∈ (compileAux initialMax e).fst.vars, var.snd.node < (compileAux initialMax e).snd := by
+    sorry
+
   abbrev MarkedDFG.ret_if_output (dfg : MarkedDFG) :=
     ∀ node ∈ dfg.dfg, node.op.isOutput = true → node.id = dfg.ret.node
 
@@ -362,6 +384,45 @@ namespace Compiler
     simp only [compile, Nid.fst]
     cases e <;> aesop
 
+  theorem DFG.MultiStep.step_transfer
+    (step : DFG.MultiStep dfg1 s1 s2)
+    (h : ⦃a b : State⦄ → ∀ node1 ∈ dfg1, node1.Step a b → ∃ node2 ∈ dfg2, node2.Step a b)
+    : DFG.MultiStep dfg2 s1 s2 := by
+    induction step with
+    | refl => rfl
+    | tail _ tl ih =>
+      apply Relation.ReflTransGen.tail ih
+      obtain ⟨node, h_mem, ns⟩ := tl
+      obtain ⟨node, h_mem, ns⟩ := h node h_mem ns
+      apply DFG.Step.node node h_mem ns
+
+  lemma initial_final_eq_false {e : Exp} {maxId : Nid} {env : Env} {v : Ty}
+    : (compileAux maxId e).fst.finalState v = (compileAux maxId e).fst.initialState env → False := by
+    intro heq
+    cases e with
+    | var s =>
+      suffices h : (compileAux maxId (Exp.var s)).1.finalState v ⟨maxId + 1, 0⟩ = []
+        by
+          delta MarkedDFG.finalState at h
+          simp at h
+      rw [heq]
+      simp
+    | plus e1 e2 =>
+      let ret := ((compileAux (compileAux maxId e1).2 e2).2 + 1).fst
+      suffices h : (compileAux maxId (e1.plus e2)).1.finalState v ret = [v]
+                    ∧ (compileAux maxId (e1.plus e2)).1.initialState env ret = []
+        by
+          exfalso
+          rw [←heq] at h
+          simp at h
+      apply And.intro
+      · aesop
+      · apply ret_not_in_initial_state
+        intro var h_mem
+        have := @vars_id_lt_max (e1.plus e2) maxId var h_mem
+
+        sorry
+
   lemma mergeTwo_eval {e1 e2 : Exp} {env : Env} {x y : Ty} {maxId maxId1 maxId2 : Nid}
     : (compileAux maxId e1).1.dfg.MultiStep ((compileAux maxId e1).1.initialState env) ((compileAux maxId e1).1.finalState x)
       → (compileAux maxId1 e2).1.dfg.MultiStep ((compileAux maxId1 e2).1.initialState env) ((compileAux maxId1 e2).1.finalState y)
@@ -369,8 +430,33 @@ namespace Compiler
           ((mergeTwo (compileAux maxId e1).1 (compileAux maxId1 e2).1 maxId2).2.initialState env)
           (.empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩) := by
     intro h1 h2
+    generalize h_g1 : compileAux maxId e1 = g1 at *
+    generalize h_g2 : compileAux maxId1 e2 = g2 at *
+    obtain ⟨dfg1, vars1⟩ := g1
+    obtain ⟨dfg2, vars2⟩ := g2
+    generalize h_mg : (mergeTwo dfg1 dfg2 maxId2) = mg
+    obtain ⟨dfg_mg, vars_mg⟩ := mg
 
-    sorry
+    generalize h_g1i : dfg1.initialState env = g1i at *
+    generalize h_g1f : dfg1.finalState x = g1f at *
+    induction h1 with
+    | refl =>
+      exfalso
+      suffices h : (compileAux maxId e1).fst.finalState x = (compileAux maxId e1).fst.initialState env
+        from initial_final_eq_false h
+      simp_all
+    | tail hd1 tl1 ih1 =>
+      generalize h_g2i : dfg2.initialState env = g2i at *
+      generalize h_g2f : dfg2.finalState y = g2f at *
+      induction h2 with
+      | refl =>
+        exfalso
+        suffices h : (compileAux maxId1 e2).fst.finalState y = (compileAux maxId1 e2).fst.initialState env
+          from initial_final_eq_false h
+        simp_all
+      | tail hd2 tl2 ih2 =>
+
+        sorry
 
   theorem compileAux_value_correct {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
     : Eval env e v
