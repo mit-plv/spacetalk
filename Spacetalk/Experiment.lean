@@ -462,12 +462,14 @@ namespace Compiler
           exact compile_vars_id_lt var h_mem
 
   lemma mergeTwo_eval {e1 e2 : Exp} {env : Env} {x y : Ty} {maxId maxId1 maxId2 : Nid}
-    : (compileAux maxId e1).1.dfg.MultiStep ((compileAux maxId e1).1.initialState env) ((compileAux maxId e1).1.finalState x)
+    : (h_maxId1 : (compileAux maxId e1).2 = maxId1)
+      → (h_maxId2 : (compileAux maxId1 e2).2 = maxId2)
+      → (compileAux maxId e1).1.dfg.MultiStep ((compileAux maxId e1).1.initialState env) ((compileAux maxId e1).1.finalState x)
       → (compileAux maxId1 e2).1.dfg.MultiStep ((compileAux maxId1 e2).1.initialState env) ((compileAux maxId1 e2).1.finalState y)
       → (mergeTwo (compileAux maxId e1).1 (compileAux maxId1 e2).1 maxId2).1.MultiStep
           ((mergeTwo (compileAux maxId e1).1 (compileAux maxId1 e2).1 maxId2).2.initialState env)
           (.empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩) := by
-    intro h1 h2
+    intro h_maxId1 h_maxId2 h1 h2
     generalize h_g1 : compileAux maxId e1 = g1 at *
     generalize h_g2 : compileAux maxId1 e2 = g2 at *
     obtain ⟨dfg1, vars1⟩ := g1
@@ -517,7 +519,7 @@ namespace Compiler
       trans (.empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩)
       · apply DFG.MultiStep.cons
         apply DFG.MultiStep.cons
-        apply mergeTwo_eval
+        apply mergeTwo_eval maxId1_eq maxId2_eq
         · exact compileAux_value_correct eval1
         · exact compileAux_value_correct eval2
       · apply DFG.multi_step_subst ⟨maxId2, .binOp .plus [(maxId2 + 1).fst]⟩
