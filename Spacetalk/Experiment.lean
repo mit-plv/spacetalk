@@ -398,8 +398,9 @@ namespace Compiler
     : ∀ var ∈ (mergeVars dfg1 dfg2).2, var.2.node < maxId := by
     intro var h_mem
     simp [mergeVars] at h_mem
-
-    sorry
+    apply List.foldl_induction (f := mergeVarsAux dfg1) (dfg1.dfg ++ dfg2.dfg, dfg1.vars) dfg2.vars
+      (λ x => ∀ var ∈ x.2, var.2.node < maxId) _ _ _ h_mem
+    <;> aesop
 
   lemma merge_vars_id_lt {dfg1 dfg2 : MarkedDFG} {maxId : Nid}
     (h1 : ∀ var ∈ dfg1.vars, var.2.node < maxId)
