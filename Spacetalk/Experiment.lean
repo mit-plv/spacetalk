@@ -302,10 +302,6 @@ namespace Compiler
           · exact merge_id_lt_max maxId2 e1_ih e2_ih node h
           · simp
 
-  lemma vars_id_lt_max {e : Exp} {initialMax : Nid}
-    : ∀ var ∈ (compileAux initialMax e).fst.vars, var.snd.node < (compileAux initialMax e).snd := by
-    sorry
-
   abbrev MarkedDFG.ret_if_output (dfg : MarkedDFG) :=
     ∀ node ∈ dfg.dfg, node.op.isOutput = true → node.id = dfg.ret.node
 
@@ -396,6 +392,16 @@ namespace Compiler
       obtain ⟨node, h_mem, ns⟩ := h node h_mem ns
       apply DFG.Step.node node h_mem ns
 
+  lemma merge_vars_id_lt {dfg1 dfg2 : MarkedDFG} {maxId : Nid}
+    (h1 : ∀ var ∈ dfg1.vars, var.2.node < maxId)
+    (h2 : ∀ var ∈ dfg2.vars, var.2.node < maxId)
+    : ∀ var ∈ (mergeTwo dfg1 dfg2 maxId).2, var.2.node < maxId := by
+    sorry
+
+  lemma compile_vars_id_lt {e : Exp} {maxId : Nid}
+    : ∀ var ∈ (compileAux maxId e).fst.vars, var.snd.node < (compileAux maxId e).snd := by
+    sorry
+
   lemma initial_final_eq_false {e : Exp} {maxId : Nid} {env : Env} {v : Ty}
     : (compileAux maxId e).fst.finalState v = (compileAux maxId e).fst.initialState env → False := by
     intro heq
@@ -419,9 +425,19 @@ namespace Compiler
       · aesop
       · apply ret_not_in_initial_state
         intro var h_mem
-        have := @vars_id_lt_max (e1.plus e2) maxId var h_mem
-
-        sorry
+        suffices h : var.2.node ≠ ret.node by aesop
+        suffices h_lt : var.2.node < (compileAux (compileAux maxId e1).2 e2).2
+          by
+            have h {x y : Nat} : x < y → x ≠ y + 1 := by omega
+            exact h h_lt
+        simp only [compileAux] at h_mem
+        apply merge_vars_id_lt _ _ var h_mem
+        · intro var h_mem
+          trans (compileAux maxId e1).2
+          · exact compile_vars_id_lt var h_mem
+          · exact compile_maxId_lt
+        · intro var h_mem
+          exact compile_vars_id_lt var h_mem
 
   lemma mergeTwo_eval {e1 e2 : Exp} {env : Env} {x y : Ty} {maxId maxId1 maxId2 : Nid}
     : (compileAux maxId e1).1.dfg.MultiStep ((compileAux maxId e1).1.initialState env) ((compileAux maxId e1).1.finalState x)
