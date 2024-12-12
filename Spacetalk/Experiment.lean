@@ -493,7 +493,6 @@ namespace Compiler
           from initial_final_eq_false h
         simp_all
       | tail hd2 tl2 ih2 =>
-
         sorry
 
   theorem compileAux_value_correct {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
