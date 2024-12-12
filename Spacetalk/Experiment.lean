@@ -392,15 +392,36 @@ namespace Compiler
       obtain ⟨node, h_mem, ns⟩ := h node h_mem ns
       apply DFG.Step.node node h_mem ns
 
+  lemma mergeVars_vars_id_lt {dfg1 dfg2 : MarkedDFG} {maxId : Nid}
+    (h1 : ∀ var ∈ dfg1.vars, var.2.node < maxId)
+    (h2 : ∀ var ∈ dfg2.vars, var.2.node < maxId)
+    : ∀ var ∈ (mergeVars dfg1 dfg2).2, var.2.node < maxId := by
+    intro var h_mem
+    simp [mergeVars] at h_mem
+
+    sorry
+
   lemma merge_vars_id_lt {dfg1 dfg2 : MarkedDFG} {maxId : Nid}
     (h1 : ∀ var ∈ dfg1.vars, var.2.node < maxId)
     (h2 : ∀ var ∈ dfg2.vars, var.2.node < maxId)
-    : ∀ var ∈ (mergeTwo dfg1 dfg2 maxId).2, var.2.node < maxId := by
-    sorry
+    : ∀ var ∈ (mergeTwo dfg1 dfg2 maxId).2, var.2.node < maxId :=
+    mergeVars_vars_id_lt h1 h2
 
   lemma compile_vars_id_lt {e : Exp} {maxId : Nid}
     : ∀ var ∈ (compileAux maxId e).fst.vars, var.snd.node < (compileAux maxId e).snd := by
-    sorry
+    cases e with
+    | var _ => aesop
+    | plus e1 e2 =>
+      intro var h_mem
+      simp_all only [compileAux, Nid.fst, mergeTwo, Nid.snd, List.map_map]
+      trans (compileAux (compileAux maxId e1).2 e2).2
+      · apply mergeVars_vars_id_lt _ _ var h_mem
+        · intro var h_mem
+          trans (compileAux maxId e1).2
+          · exact compile_vars_id_lt var h_mem
+          · exact compile_maxId_lt
+        · exact compile_vars_id_lt
+      · simp
 
   lemma initial_final_eq_false {e : Exp} {maxId : Nid} {env : Env} {v : Ty}
     : (compileAux maxId e).fst.finalState v = (compileAux maxId e).fst.initialState env → False := by
