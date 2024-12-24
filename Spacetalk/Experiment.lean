@@ -60,7 +60,13 @@ namespace Df
     id : Nid
     op : NodeOp
 
+  def Node.isInput : Node → Bool
+    | ⟨_, .input _⟩ => true
+    | _ => false
+
   abbrev DFG := List Node
+
+  abbrev DFG.NodeMem (dfg : DFG) := {node : Node // node ∈ dfg}
 
   abbrev State := Port → List Ty
 
@@ -97,6 +103,33 @@ namespace Df
     | node : (node : Node) → node ∈ dfg → node.Step s1 s2 → DFG.Step dfg s1 s2
 
   abbrev DFG.MultiStep (dfg : DFG) := Relation.ReflTransGen dfg.Step
+
+  inductive DFG.Trace : (dfg : DFG) → List dfg.NodeMem → State → State → Prop
+    | nil : DFG.Trace dfg [] s s
+    | cons : {node : Node} → {h_mem : node ∈ dfg} → {nodes : List dfg.NodeMem}
+      → (hd : node.Step s1 s2)
+      → (tl : DFG.Trace dfg nodes s2 s3)
+      → DFG.Trace dfg (⟨node, h_mem⟩ :: nodes) s1 s3
+
+  theorem DFG.Trace.subst {dfg : DFG} {s1 s2 s3 : State} {nodes : List dfg.NodeMem}
+    (trace : dfg.Trace nodes s1 s2) (h : s2 = s3) : dfg.Trace nodes s1 s3 :=
+    h ▸ trace
+
+  structure DFG.Canonical (dfg : DFG) (s1 s3 : State) : Type where
+    s2 : State
+    inputs : List dfg.NodeMem
+    others : List dfg.NodeMem
+    t1 : dfg.Trace inputs s1 s2
+    t2 : dfg.Trace others s2 s3
+    h_inputs : ∀ node ∈ inputs, node.val.isInput = true
+    h_others : ∀ node ∈ others, node.val.isInput = false
+
+  theorem DFG.Trace.to_steps {dfg : DFG} {nodes : List dfg.NodeMem} : dfg.Trace nodes s1 s2 → dfg.MultiStep s1 s2
+    | nil => .refl
+    | @cons _ _ _ _ node h_mem _ hd tl => .trans (.single (.node node h_mem hd)) tl.to_steps
+
+  theorem DFG.Canonical.to_steps {dfg : DFG} {s1 s2 : State} (cs : dfg.Canonical s1 s2) : dfg.MultiStep s1 s2 :=
+    .trans cs.t1.to_steps cs.t2.to_steps
 
   theorem DFG.multi_step_subst {dfg : DFG} {s1 s2 s3 : State}
     (node : Node) (h_mem : node ∈ dfg) (step : node.Step s1 s2) (heq : s2 = s3)
@@ -461,71 +494,25 @@ namespace Compiler
         · intro var h_mem
           exact compile_vars_id_lt var h_mem
 
-  lemma mergeTwo_eval {e1 e2 : Exp} {env : Env} {x y : Ty} {maxId maxId1 maxId2 : Nid}
-    : (h_maxId1 : (compileAux maxId e1).2 = maxId1)
-      → (h_maxId2 : (compileAux maxId1 e2).2 = maxId2)
-      → (compileAux maxId e1).1.dfg.MultiStep ((compileAux maxId e1).1.initialState env) ((compileAux maxId e1).1.finalState x)
-      → (compileAux maxId1 e2).1.dfg.MultiStep ((compileAux maxId1 e2).1.initialState env) ((compileAux maxId1 e2).1.finalState y)
-      → (mergeTwo (compileAux maxId e1).1 (compileAux maxId1 e2).1 maxId2).1.MultiStep
-          ((mergeTwo (compileAux maxId e1).1 (compileAux maxId1 e2).1 maxId2).2.initialState env)
-          (.empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩) := by
-    intro h_maxId1 h_maxId2 h1 h2
-    generalize h_g1 : compileAux maxId e1 = g1 at *
-    generalize h_g2 : compileAux maxId1 e2 = g2 at *
-    obtain ⟨dfg1, vars1⟩ := g1
-    obtain ⟨dfg2, vars2⟩ := g2
-    generalize h_mg : (mergeTwo dfg1 dfg2 maxId2) = mg
-    obtain ⟨dfg_mg, vars_mg⟩ := mg
-
-    generalize h_g1i : dfg1.initialState env = g1i at *
-    generalize h_g1f : dfg1.finalState x = g1f at *
-    induction h1 with
-    | refl =>
-      exfalso
-      suffices h : (compileAux maxId e1).fst.finalState x = (compileAux maxId e1).fst.initialState env
-        from initial_final_eq_false h
-      simp_all
-    | tail hd1 tl1 ih1 =>
-      generalize h_g2i : dfg2.initialState env = g2i at *
-      generalize h_g2f : dfg2.finalState y = g2f at *
-      induction h2 with
-      | refl =>
-        exfalso
-        suffices h : (compileAux maxId1 e2).fst.finalState y = (compileAux maxId1 e2).fst.initialState env
-          from initial_final_eq_false h
-        simp_all
-      | tail hd2 tl2 ih2 =>
-        sorry
+  def compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
+    (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) :=
+    match e with
+    | .var s => by
+      apply DFG.Canonical.mk _ [⟨⟨maxId, .input [(maxId + 1).fst]⟩, by simp⟩] []
+      · apply DFG.Trace.cons
+        · apply Node.Step.input; simp
+        · exact .nil
+      · apply DFG.Trace.subst .nil
+        have : env s = v := by cases eval; assumption
+        aesop
+      · aesop
+      · aesop
+    | .plus e1 e2 =>
+      sorry
 
   theorem compileAux_value_correct {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
-    : Eval env e v
-      → (compileAux maxId e).fst.dfg.MultiStep ((compileAux maxId e).fst.initialState env) ((compileAux maxId e).fst.finalState v) := by
-    intro eval
-    cases e with
-    | var s =>
-      cases eval
-      rename_i h_v
-      apply DFG.multi_step_subst ⟨maxId, .input [⟨maxId + 1, 0⟩]⟩
-      · simp
-      · apply Node.Step.input
-        simp
-      · aesop
-    | plus e1 e2 =>
-      simp only [compileAux]
-      generalize maxId1_eq : (compileAux maxId e1).2 = maxId1
-      generalize maxId2_eq : (compileAux maxId1 e2).2 = maxId2
-      cases eval
-      rename_i x y eval1 eval2
-      trans (.empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩)
-      · apply DFG.MultiStep.cons
-        apply DFG.MultiStep.cons
-        apply mergeTwo_eval maxId1_eq maxId2_eq
-        · exact compileAux_value_correct eval1
-        · exact compileAux_value_correct eval2
-      · apply DFG.multi_step_subst ⟨maxId2, .binOp .plus [(maxId2 + 1).fst]⟩
-        · simp
-        · apply Node.Step.binOp (v1 := x) (v2 := y) <;> simp
-        · aesop
+    (eval : Eval env e v) : (compileAux maxId e).1.dfg.MultiStep ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) :=
+    (compileAux_canonical_trace eval).to_steps
 
   theorem compile_value_correct {e : Exp} {env : Env} {v : Ty} (eval : Eval env e v)
     : (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
