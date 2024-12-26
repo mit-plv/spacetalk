@@ -124,6 +124,11 @@ namespace Df
     (trace : dfg.Trace nodes s1 s2) (h : s2 = s3) : dfg.Trace nodes s1 s3 :=
     h ▸ trace
 
+  inductive DFG.PostInput : DFG → State → State → Prop
+    | mk : (nodes : List dfg.NodeMem) → dfg.Trace nodes s1 s2
+      → (∀ node ∈ nodes, node.val.isInput = false)
+      → DFG.PostInput dfg s1 s2
+
   inductive DFG.Canonical : DFG → State → State → Prop
     | mk : (s2 : State)
       → (inputs : List dfg.NodeMem)
@@ -259,17 +264,21 @@ namespace Compiler
       List.foldl_induction (f init hd) tl P (ih init hd (by simp_all) h)
         (λ agg x h_mem h => ih agg x (by simp_all) h)
 
-  theorem List.foldl_induction_strong {f : α → β → α} (init : α) (l : List β)
-    (P : α → List β → α → Prop)
-    (h : P init [] init)
-    (ih : ∀ agg, ∀ sl ∈ l.sublists, match sl with | [] => True | hd :: tl => P init tl agg → P init (hd :: tl) (f agg hd))
-    : P init l (l.foldl f init) :=
-    sorry
-    -- match l with
-    -- | [] => h
-    -- | hd :: tl =>
-    --   List.foldl_induction (f init hd) tl P (ih init hd (by simp_all) h)
-    --     (λ agg x h_mem h => ih agg x (by simp_all) h)
+  theorem List.foldl_dual_induction {f₁ : α₁ → β₁ → α₁} {f₂ : α₂ → β₂ → α₂}
+    (init₁ : α₁) (init₂ : α₂) (l₁ : List β₁) (l₂ : List β₂) (P : α₁ → α₂ → Prop)
+    (h_length : l₁.length = l₂.length) (h : P init₁ init₂)
+    (ih : ∀ agg₁, ∀ agg₂, ∀ x ∈ l₁.zip l₂, P agg₁ agg₂ → P (f₁ agg₁ x.1) (f₂ agg₂ x.2))
+    : P (l₁.foldl f₁ init₁) (l₂.foldl f₂ init₂) :=
+    match l₁, l₂ with
+    | [], [] => h
+    | hd₁ :: tl₁, hd₂ :: tl₂ => by
+      apply List.foldl_dual_induction (f₁ init₁ hd₁) (f₂ init₂ hd₂) tl₁ tl₂
+      · simp_all
+      · exact ih init₁ init₂ (hd₁, hd₂) (by simp) h
+      · intro agg₁ agg₂ x h_mem ih'
+        apply ih
+        · simp_all
+        · exact ih'
 
   lemma ret_not_in_initial_state {ret : Port} {vars : VarMap} {env : Env}
     (h : ∀ var ∈ vars, ret ≠ var.2) : (vars.initialState env) ret = [] := by
@@ -572,27 +581,35 @@ namespace Compiler
     : mergedState dfg1 dfg2 nid s ↦ ⟨v, if p = dfg1.ret then nid.fst else if p = dfg2.ret then nid.snd else p⟩ = mergedState dfg1 dfg2 nid (s ↦ ⟨v, p⟩) := by
     aesop
 
+  theorem List.zip_map_self_left {f : α → β} {l : List α}
+    (h : x ∈ (l.map f).zip l) : x.1 = f x.2 := by
+    rw [List.zip_map_left] at h
+    simp_all only [List.mem_map, Prod.exists, Prod.map_apply, id_eq]
+    obtain ⟨a, b, ⟨h_mem, h_eq⟩⟩ := h
+    rw [←h_eq]
+    simp only
+    rw [List.zip_eq_zipWith, List.zipWith_same] at h_mem
+    simp_all
+
   theorem mergedState_pushAll_assoc {dfg1 dfg2 : MarkedDFG} {nid : Nid} {s : State} {v : Ty} {ps : List Port}
     (h_ne_nid : ∀ p ∈ ps, p.node ≠ nid) (h_ret_ne : dfg1.ret ≠ dfg2.ret)
     : mergedState dfg1 dfg2 nid s ↦↦
         ⟨v, ps.map λ p => if p = dfg1.ret then nid.fst else if p = dfg2.ret then nid.snd else p⟩ =
       mergedState dfg1 dfg2 nid (s ↦↦ ⟨v, ps⟩) := by
     simp only [State.pushAll]
-    apply List.foldl_induction_strong s ps
-      (λ init ps agg =>
-        List.foldl (fun s tag => s ↦ ⟨v, tag⟩) (mergedState dfg1 dfg2 nid init)
-          (List.map (fun p => if p = dfg1.ret then nid.fst else if p = dfg2.ret then nid.snd else p) ps) =
-        mergedState dfg1 dfg2 nid agg)
+    apply List.foldl_dual_induction
+      (P := λ agg₁ agg₂ =>
+        agg₁ = mergedState dfg1 dfg2 nid agg₂)
+    · simp
     · rfl
-    · intro agg sl h_mem
-      cases sl with
-      | nil => trivial
-      | cons hd tl =>
-        intro ih
-        have : hd ∈ ps := List.Sublist.mem (.head _) (List.mem_sublists.mp h_mem)
-        have := mergedState_push_assoc (h_ne_nid hd this) h_ret_ne (v := v) (s := agg)
-        rw [←this]
-        sorry
+    · intro agg₁ agg₂ x h_mem h
+      rw [h]
+      have := List.zip_map_self_left h_mem
+      rw [this]
+      apply mergedState_push_assoc
+      · apply h_ne_nid
+        exact (List.of_mem_zip h_mem).right
+      · exact h_ret_ne
 
   abbrev MergeTwo (e1 e2 : Exp) (maxId : Nid) : DFG × VarMap :=
     mergeTwo (compileAux maxId e1).1 (compileAux (compileAux maxId e1).2 e2).1
@@ -680,7 +697,6 @@ namespace Compiler
                 apply And.intro
                 · intro node1 h_mem1 node2 h_mem2 h_id_eq
                   simp_all only [mergeVarsAux]
-
                   sorry
                 · simp only [mergeVarsAux]
                   split
@@ -782,6 +798,19 @@ namespace Compiler
         have := this p h_mem
         have := Nat.lt_trans this h_lt
         apply Nat.ne_of_lt this
+
+  -- theorem trace_to_merge {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State} {nodes : List (DFG.NodeMem (compileAux maxId e1).1.dfg)}
+  --   (trace : (compileAux maxId e1).1.dfg.Trace nodes s1 s2)
+  --   (h : ∀ node ∈ nodes, node.val.isInput = false)
+  --   : (MergeTwo e1 e2 maxId).1.PostInput (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) :=
+  --   match trace with
+  --   | .nil => .mk [] .nil (λ node h_mem => (List.not_mem_nil node h_mem).elim)
+  --   | @DFG.Trace.cons _ _ _ _ node h_mem nodes hd tl =>
+  --     let hd := non_input_step_to_merged node h_mem (h ⟨node, h_mem⟩ (.head _)) hd (e1 := e1) (e2 := e2) (maxId := maxId)
+  --     let tl := trace_to_merge tl (λ node h_mem => h node (.tail _ _))
+  --     match hd, tl with
+  --     | .node node h_mem step, .mk nodes tl h =>
+  --       .mk (⟨node, h_mem⟩ :: nodes) (_) (λ node h_mem =>)
 
   lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
     (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) :=
