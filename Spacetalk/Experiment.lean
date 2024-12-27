@@ -61,8 +61,14 @@ namespace Df
     id : Nid
     op : NodeOp
 
+  @[simp]
   def Node.isInput : Node → Bool
     | ⟨_, .input _⟩ => true
+    | _ => false
+
+  @[simp]
+  def Node.isOp : Node → Bool
+    | ⟨_, .binOp _ _⟩ => true
     | _ => false
 
   abbrev DFG := List Node
@@ -107,52 +113,57 @@ namespace Df
   inductive DFG.Step : DFG → State → State → Prop
     | node : (node : Node) → node ∈ dfg → node.Step s1 s2 → DFG.Step dfg s1 s2
 
+  inductive DFG.InputStep : DFG → State → State → Prop
+    | node : (node : Node) → node.isInput = true → node ∈ dfg → node.Step s1 s2 → DFG.InputStep dfg s1 s2
+
+  inductive DFG.OpStep : DFG → State → State → Prop
+    | node : (node : Node) → node.isOp = true → node ∈ dfg → node.Step s1 s2 → DFG.OpStep dfg s1 s2
+
+  def DFG.InputStep.toStep {dfg : DFG} : dfg.InputStep s1 s2 → dfg.Step s1 s2
+    | .node n _ h_mem step => .node n h_mem step
+
+  def DFG.OpStep.toStep {dfg : DFG} : dfg.OpStep s1 s2 → dfg.Step s1 s2
+    | .node n _ h_mem step => .node n h_mem step
+
   abbrev DFG.MultiStep (dfg : DFG) := Relation.ReflTransGen dfg.Step
 
-  inductive DFG.Trace : (dfg : DFG) → List dfg.NodeMem → State → State → Prop
-    | nil : DFG.Trace dfg [] s s
-    | cons : {node : Node} → {h_mem : node ∈ dfg} → {nodes : List dfg.NodeMem}
-      → (hd : node.Step s1 s2)
-      → (tl : DFG.Trace dfg nodes s2 s3)
-      → DFG.Trace dfg (⟨node, h_mem⟩ :: nodes) s1 s3
+  abbrev DFG.MultiInputStep (dfg : DFG) := Relation.ReflTransGen dfg.InputStep
+
+  abbrev DFG.MultiOpStep (dfg : DFG) := Relation.ReflTransGen dfg.OpStep
+
+  theorem DFG.MultiInputStep.to_MultiStep {dfg : DFG} (h : dfg.MultiInputStep s1 s2) : dfg.MultiStep s1 s2 := by
+    induction h with
+    | refl => rfl
+    | tail hd tl ih => exact Relation.ReflTransGen.tail ih tl.toStep
+
+  theorem DFG.MultiOpStep.to_MultiStep {dfg : DFG} (h : dfg.MultiOpStep s1 s2) : dfg.MultiStep s1 s2 := by
+    induction h with
+    | refl => rfl
+    | tail hd tl ih => apply Relation.ReflTransGen.tail ih tl.toStep
 
   theorem Node.Step.subst {node : Node} {s1 s2 s3 : State}
     (ns : node.Step s1 s2) (h : s2 = s3) : node.Step s1 s3 :=
     h ▸ ns
 
-  theorem DFG.Trace.subst {dfg : DFG} {s1 s2 s3 : State} {nodes : List dfg.NodeMem}
-    (trace : dfg.Trace nodes s1 s2) (h : s2 = s3) : dfg.Trace nodes s1 s3 :=
-    h ▸ trace
-
-  inductive DFG.PostInput : DFG → State → State → Prop
-    | mk : (nodes : List dfg.NodeMem) → dfg.Trace nodes s1 s2
-      → (∀ node ∈ nodes, node.val.isInput = false)
-      → DFG.PostInput dfg s1 s2
-
   inductive DFG.Canonical : DFG → State → State → Prop
     | mk : (s2 : State)
-      → (inputs : List dfg.NodeMem)
-      → (others : List dfg.NodeMem)
-      → dfg.Trace inputs s1 s2
-      → dfg.Trace others s2 s3
-      → (∀ node ∈ inputs, node.val.isInput = true)
-      → (∀ node ∈ others, node.val.isInput = false)
+      → dfg.MultiInputStep s1 s2
+      → dfg.MultiOpStep s2 s3
       → DFG.Canonical dfg s1 s3
 
-  theorem DFG.Trace.to_steps {dfg : DFG} {nodes : List dfg.NodeMem} : dfg.Trace nodes s1 s2 → dfg.MultiStep s1 s2
-    | nil => .refl
-    | @cons _ _ _ _ node h_mem _ hd tl => .trans (.single (.node node h_mem hd)) tl.to_steps
-
   theorem DFG.Canonical.to_steps {dfg : DFG} {s1 s2 : State} : dfg.Canonical s1 s2 → dfg.MultiStep s1 s2
-  | .mk _ _ _ t1 t2 _ _ => .trans t1.to_steps t2.to_steps
-
-  theorem DFG.Trace.concat {dfg : DFG} {s1 s2 : State} {nodes : List dfg.NodeMem} {node : Node}
-    : dfg.Trace nodes s1 s2 → (h_mem : node ∈ dfg) → node.Step s2 s3 → dfg.Trace (nodes.concat ⟨node, h_mem⟩) s1 s3
-    | .nil, h_mem, ns => .cons ns .nil
-    | .cons hd tl, h_mem, ns => .cons hd (tl.concat h_mem ns)
+  | .mk _ t1 t2 => .trans t1.to_MultiStep t2.to_MultiStep
 
   theorem DFG.Step.subst {dfg : DFG} {s1 s2 s3 : State}
     (step : dfg.Step s1 s2) (h : s2 = s3) : dfg.Step s1 s3 :=
+    h ▸ step
+
+  theorem DFG.OpStep.subst {dfg : DFG} {s1 s2 s3 : State}
+    (step : dfg.OpStep s1 s2) (h : s2 = s3) : dfg.OpStep s1 s3 :=
+    h ▸ step
+
+  theorem DFG.MultiOpStep.subst {dfg : DFG} {s1 s2 s3 : State}
+    (step : dfg.MultiOpStep s1 s2) (h : s2 = s3) : dfg.MultiOpStep s1 s3 :=
     h ▸ step
 
   theorem DFG.multi_step_subst {dfg : DFG} {s1 s2 s3 : State}
@@ -665,7 +676,7 @@ namespace Compiler
 
   theorem non_input_step_to_merged {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
     (node : Node) (h_mem : node ∈ (compileAux maxId e1).1.dfg)
-    (h_input : node.isInput = false)
+    (h_input : node.isOp = true)
     (s : node.Step s1 s2)
     : (MergeTwo e1 e2 maxId).1.Step (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) :=
     match node, h_input, s with
@@ -816,35 +827,33 @@ namespace Compiler
     (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) :=
     match e with
     | .var s => by
-      apply DFG.Canonical.mk _ [⟨⟨maxId, .input [(maxId + 1).fst]⟩, by simp⟩] []
-      · apply DFG.Trace.cons
+      apply DFG.Canonical.mk
+      · apply Relation.ReflTransGen.single
+        apply DFG.InputStep.node ⟨maxId, .input [(maxId + 1).fst]⟩
+        · simp
+        · simp
         · apply Node.Step.input; simp
-        · exact .nil
-      · apply DFG.Trace.subst .nil
+      · apply DFG.MultiOpStep.subst .refl
         have : env s = v := by cases eval; assumption
         aesop
-      · aesop
-      · aesop
     | .plus e1 e2 => by
       generalize maxId1_eq : (compileAux maxId e1).2 = maxId1 at *
       generalize maxId2_eq : (compileAux maxId1 e2).2 = maxId2 at *
       cases eval
       rename_i x y eval1 eval2
-      obtain ⟨c1_s2, c1_inputs, c1_others, c1_t1, c1_t2, c1_h_inputs, c1_h_others⟩ := compileAux_canonical_trace (maxId := maxId) eval1
-      obtain ⟨c2_s2, c2_inputs, c2_others, c2_t1, c2_t2, c2_h_inputs, c2_h_others⟩ := compileAux_canonical_trace (maxId := maxId1) eval2
+      obtain ⟨c1_s2, c1_t1, c1_t2⟩ := compileAux_canonical_trace (maxId := maxId) eval1
+      obtain ⟨c2_s2, c2_t1, c2_t2⟩ := compileAux_canonical_trace (maxId := maxId1) eval2
       apply DFG.Canonical.mk (c2_s2 ⊕ c2_s2)
       · sorry
-      · apply DFG.Trace.concat
-          (s2 := .empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩)
-          (node := ⟨maxId2, .binOp .plus [(maxId2 + 1).fst]⟩)
+      · apply Relation.ReflTransGen.tail
+          (b := .empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩)
         · sorry
-        · aesop
-        · apply Node.Step.subst (.binOp (by simp) (by simp))
-          aesop
-        sorry
-      · sorry
-      · sorry
-      sorry
+        · apply DFG.OpStep.node
+            ⟨(compileAux (compileAux maxId e1).2 e2).2, .binOp .plus [((compileAux (compileAux maxId e1).2 e2).2 + 1).fst]⟩
+          · simp
+          · simp
+          · apply Node.Step.subst (.binOp (by aesop) (by aesop))
+            aesop
 
   theorem compileAux_value_correct {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
     (eval : Eval env e v) : (compileAux maxId e).1.dfg.MultiStep ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) :=
