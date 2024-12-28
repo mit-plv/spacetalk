@@ -401,6 +401,55 @@ namespace Compiler
           · exact merge_id_lt_max maxId2 e1_ih e2_ih node h
           · simp
 
+  lemma merge_maxId_le_id
+    (ih1 : ∀ node ∈ (compileAux maxId e1).1.dfg, maxId ≤ node.id)
+    (ih2 : ∀ node ∈ (compileAux (compileAux maxId e1).2 e2).1.dfg, maxId ≤ node.id)
+    (h_mem : node ∈ (mergeTwo (compileAux maxId e1).1 (compileAux (compileAux maxId e1).2 e2).1 (compileAux (compileAux maxId e1).2 e2).2).1)
+    : maxId ≤ node.id := by
+    simp only [mergeTwo, Nid.snd, Nid.fst, List.map_map, List.mem_filter, List.mem_map,
+      Function.comp_apply] at h_mem
+    obtain ⟨⟨a, ⟨h_mem, h_eq⟩⟩, _⟩ := h_mem
+    suffices h : maxId ≤ a.id by aesop
+    apply (mergeVars_id_eq h_mem).elim
+    <;> simp_all
+
+  lemma compileAux_maxId_le_id {e : Exp} {maxId : Nid}
+    : ∀ node ∈ (compileAux maxId e).1.dfg, maxId ≤ node.id := by
+    intro node h_mem
+    cases e with
+    | var _ => aesop
+    | plus e1 e2 =>
+      simp only [compileAux] at h_mem
+      cases h_mem
+      · simp only
+        trans (compileAux maxId e1).2
+        <;> exact Nat.le_of_lt compile_maxId_lt
+      · rename_i h_mem
+        cases h_mem
+        · simp only
+          trans (compileAux maxId e1).2
+          · exact Nat.le_of_lt compile_maxId_lt
+          · trans (compileAux (compileAux maxId e1).2 e2).2
+            · exact Nat.le_of_lt compile_maxId_lt
+            · simp
+        · have ih1 := @compileAux_maxId_le_id e1 maxId
+          have ih2 : ∀ node ∈ (compileAux (compileAux maxId e1).2 e2).1.dfg, maxId ≤ node.id :=
+            λ node h_mem =>
+              Nat.le_trans (Nat.le_of_lt compile_maxId_lt) (@compileAux_maxId_le_id e2 (compileAux maxId e1).2 node h_mem)
+          rename_i h_mem
+          apply merge_maxId_le_id ih1 ih2 h_mem
+
+  lemma merge_id_lt_max_compileAux {e1 e2 : Exp} {maxId : Nid}
+    : dfg_id_lt_max
+      (mergeTwo (compileAux maxId e1).1 (compileAux (compileAux maxId e1).2 e2).1 (compileAux (compileAux maxId e1).2 e2).2).1
+      (compileAux (compileAux maxId e1).2 e2).2 := by
+    apply merge_id_lt_max
+    · intro node h_mem
+      trans (compileAux maxId e1).2
+      · exact compile_id_lt_max node h_mem
+      · exact compile_maxId_lt
+    · exact compile_id_lt_max
+
   abbrev MarkedDFG.ret_if_output (dfg : MarkedDFG) :=
     ∀ node ∈ dfg.dfg, node.op.isOutput = true → node.id = dfg.ret.node
 
@@ -659,9 +708,6 @@ namespace Compiler
   abbrev CompileNodeEq (e : Exp) (maxId : Nid) : Prop :=
     NodeEq (compileAux maxId e).1.dfg
 
-  lemma compile_node_eq (e : Exp) (maxId : Nid) : CompileNodeEq e maxId := by
-    sorry
-
   lemma append_node_eq {dfg1 dfg2 : DFG} (h1 : NodeEq dfg1) (h2 : NodeEq dfg2)
     (h_disj : ∀ node1 ∈ dfg1, ∀ node2 ∈ dfg2, node1.id ≠ node2.id) : NodeEq (dfg1 ++ dfg2) := by
     sorry
@@ -674,6 +720,7 @@ namespace Compiler
     (h : ⟨nid, .binOp op ps⟩ ∈ (compileAux maxId e).1.dfg) : ∀ p ∈ ps, p.node < (compileAux maxId e).2 := by
     sorry
 
+  @[simp]
   lemma node_eq_mergeVars {e : Exp} {maxId : Nid} {dfgVars : DFG × VarMap}
     (h : NodeEq dfgVars.1) : NodeEq (mergeVarsAux (compileAux maxId e).1 dfgVars x).1 := by
     intro node1 h_mem1 node2 h_mem2 h_id_eq
@@ -725,6 +772,72 @@ namespace Compiler
             apply h <;> assumption
         | none => simp_all
 
+  lemma node_eq_mergeTwo
+    (h1 : NodeEq (compileAux maxId e1).1.dfg)
+    (h2 : NodeEq (compileAux (compileAux maxId e1).2 e2).1.dfg)
+    : NodeEq (List.foldl (mergeVarsAux (compileAux maxId e1).1)
+              ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars)
+              (compileAux (compileAux maxId e1).2 e2).1.vars).1 := by
+    apply List.foldl_induction ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars) (compileAux (compileAux maxId e1).2 e2).1.vars
+      (λ x => NodeEq x.1)
+    · apply append_node_eq h1 h2
+      intro node1 h_mem1 node2 h_mem2
+
+      sorry
+    · intro _ _ _
+      exact node_eq_mergeVars
+
+  lemma compile_node_eq (e : Exp) (maxId : Nid) : CompileNodeEq e maxId := by
+    cases e with
+    | var _ => simp [CompileNodeEq, NodeEq]
+    | plus e1 e2 =>
+      simp only [CompileNodeEq, NodeEq]
+      intro node1 h_mem1 node2 h_mem2 heq
+      simp only [compileAux] at *
+      cases h_mem1 <;> cases h_mem2
+      · rfl
+      · rename_i h_mem2
+        cases h_mem2
+        · simp at heq
+        · simp only at heq
+          rename_i h_mem2
+          have := merge_id_lt_max_compileAux node2 h_mem2
+          have := Nat.ne_of_lt this
+          have := heq.symm
+          contradiction
+      · rename_i h_mem1
+        cases h_mem1
+        · simp at heq
+        · simp only at heq
+          rename_i h_mem1
+          have := merge_id_lt_max_compileAux node1 h_mem1
+          have := Nat.ne_of_lt this
+          have := heq.symm
+          contradiction
+      · rename_i h_mem1 h_mem2
+        cases h_mem1 <;> cases h_mem2
+        · rfl
+        · rename_i h_mem2
+          have := merge_id_lt_max_compileAux node2 h_mem2
+          simp only at heq
+          rw [←heq] at this
+          exfalso
+          exact Nid.succ_lt_false this
+        · rename_i h_mem1
+          have := merge_id_lt_max_compileAux node1 h_mem1
+          simp only at heq
+          rw [heq] at this
+          exfalso
+          exact Nid.succ_lt_false this
+        · rename_i h_mem1 h_mem2
+          obtain ⟨h_mem1, _⟩ := List.mem_filter.mp h_mem1
+          obtain ⟨h_mem2, _⟩ := List.mem_filter.mp h_mem2
+          rw [←List.comp_map] at h_mem1
+          rw [←List.comp_map] at h_mem2
+          obtain ⟨a, ⟨h_mem_a, h_eq_a⟩⟩ := List.mem_map.mp h_mem1
+          obtain ⟨b, ⟨h_mem_b, h_eq_b⟩⟩ := List.mem_map.mp h_mem2
+
+          sorry
 
   theorem op_step_to_merged {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
     (s : (compileAux maxId e1).1.dfg.OpStep s1 s2)
