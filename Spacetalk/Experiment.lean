@@ -92,6 +92,7 @@ namespace Df
   def State.pushAll (s : State) (tok : BToken) : State :=
     tok.tags.foldl (λ s tag => s.push ⟨tok.val, tag⟩) s
 
+  @[simp]
   def State.union (s1 : State) (s2 : State) : State :=
     λ t => (s1 t) ++ (s2 t)
 
@@ -161,6 +162,10 @@ namespace Df
   theorem DFG.OpStep.subst {dfg : DFG} {s1 s2 s3 : State}
     (step : dfg.OpStep s1 s2) (h : s2 = s3) : dfg.OpStep s1 s3 :=
     h ▸ step
+
+  theorem DFG.OpStep.subst_both {dfg : DFG} {s1 s2 s3 s4 : State}
+    (step : dfg.OpStep s1 s2) (h1 : s1 = s3) (h2 : s2 = s4) : dfg.OpStep s3 s4 :=
+    h1 ▸ h2 ▸ step
 
   theorem DFG.MultiOpStep.subst {dfg : DFG} {s1 s2 s3 : State}
     (step : dfg.MultiOpStep s1 s2) (h : s2 = s3) : dfg.MultiOpStep s1 s3 :=
@@ -1187,6 +1192,44 @@ namespace Compiler
     | refl => rfl
     | tail hd tl ih => exact Relation.ReflTransGen.tail ih (op_step_to_merged_right tl)
 
+  lemma op_step_irrelevant_state {dfg : DFG} (h_disj : s3 nid.fst = [] ∧ s3 nid.snd = [] ∧ ∀ p ∈ ps, s3 p = [])
+    (h_mem : ⟨nid, .binOp op ps⟩ ∈ dfg)
+    (step : (⟨nid, .binOp op ps⟩ : Node).Step s1 s2) : dfg.OpStep (s1 ⊕ s3) (s2 ⊕ s3) := by
+    apply DFG.OpStep.node ⟨nid, .binOp op ps⟩
+    · simp
+    · exact h_mem
+    · cases step
+      rename_i h1 h2
+      have h1 : (s1 ⊕ s3) nid.fst ≠ [] := by simp_all
+      have h2 : (s1 ⊕ s3) nid.snd ≠ [] := by simp_all
+      have : ∀ v1 v2, v1 = v2 → (s1 ↤ nid.fst ↤ nid.snd ↦↦ ⟨v1, ps⟩).union s3 = (s1 ⊕ s3) ↤ nid.fst ↤ nid.snd ↦↦ ⟨v2, ps⟩ := by
+        intro v1 v2 h_eq
+        have : (s1 ⊕ s3) ↤ nid.fst = s1 ↤ nid.fst ⊕ s3 := by aesop
+        rw [this]
+        have : (s1 ↤ nid.fst).union s3 ↤ nid.snd = (s1 ↤ nid.fst ↤ nid.snd).union s3 := by aesop
+        rw [this]
+        rw [h_eq]
+        apply List.foldl_dual_induction _ _ _ _
+          (λ agg₁ agg₂ => (agg₁ ⊕ s3) = agg₂)
+        · rfl
+        · rfl
+        · intro agg₁ agg₂ x h_mem h_eq
+          have : x.1 = x.2 := by
+            simp only [List.zip, List.zipWith_same, List.mem_map] at h_mem
+            obtain ⟨a, h⟩ := h_mem
+            aesop
+          rw [this]
+          have : s3 x.2 = [] := by
+            simp only [List.zip, List.zipWith_same, List.mem_map] at h_mem
+            obtain ⟨a, h⟩ := h_mem
+            have : x.2 = a := by aesop
+            rw [this]
+            exact h_disj.right.right a h.left
+          aesop
+      rw [this]
+      apply Node.Step.binOp (op := op) (ts := ps) h1 h2
+      simp_all
+
   lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
     (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) :=
     match e with
@@ -1207,13 +1250,16 @@ namespace Compiler
       rename_i x y eval1 eval2
       obtain ⟨c1_s2, c1_t1, c1_t2⟩ := compileAux_canonical_trace (maxId := maxId) eval1
       obtain ⟨c2_s2, c2_t1, c2_t2⟩ := compileAux_canonical_trace (maxId := maxId1) eval2
-      apply DFG.Canonical.mk (c1_s2 ⊕ c2_s2)
+      apply DFG.Canonical.mk (MergedState e1 e2 maxId (c1_s2 ⊕ c2_s2))
       · sorry
       · apply Relation.ReflTransGen.tail
           (b := .empty ↦ ⟨x, maxId2.fst⟩ ↦ ⟨y, maxId2.snd⟩)
         · have s1 := op_multi_step_to_merged_left c1_t2 (e1 := e1) (e2 := e2)
           have s2 := op_multi_step_to_merged_right (maxId1_eq ▸ c2_t2)
-          sorry
+          trans (MergedState e1 e2 maxId ((compileAux maxId e1).1.finalState x ⊕ c2_s2))
+          ·
+            sorry
+          · sorry
         · apply DFG.OpStep.node
             ⟨(compileAux (compileAux maxId e1).2 e2).2, .binOp .plus [((compileAux (compileAux maxId e1).2 e2).2 + 1).fst]⟩
           · simp
