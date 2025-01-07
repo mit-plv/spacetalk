@@ -111,16 +111,78 @@ namespace Df
     | binOp : {op : BinOp} → (h1 : s nid.fst ≠ []) → (h2 : s nid.snd ≠ [])
       → Node.Step ⟨nid, .binOp op ts⟩ s (s ↤ nid.fst ↤ nid.snd ↦↦ ⟨op.denote ((s nid.fst).head h1) ((s nid.snd).head h2), ts⟩)
 
-  inductive PredicatedStep : (Node → Prop) → State → State → Prop
-    | node : (node : Node) → P node → node.Step s1 s2 → PredicatedStep P s1 s2
+  @[simp]
+  def Predicate := Node → State → State → Prop
 
-  abbrev Node.Step.contained {node : Node} (low high : Nid) (step : node.Step s1 s2) :=
-    ∀ 
+  inductive PredicatedStep : Predicate → State → State → Prop
+    | node : (node : Node) → P node s1 s2 → node.Step s1 s2 → PredicatedStep P s1 s2
 
-  def DFG.MultiStep (dfg : DFG) := Relation.ReflTransGen (PredicatedStep (λ node => node ∈ dfg))
+  @[simp]
+  def DFGMem (dfg : DFG) : Predicate :=
+    λ node _ _ => node ∈ dfg
+
+  @[simp]
+  def NidContained (low high : Nid) : Predicate :=
+    λ _ s1 s2 =>
+      ∀ port, port.node < low ∨ port.node > high → s1 port = s2 port
+
+  @[simp]
+  def Predicate.isInput : Predicate :=
+    λ node _ _ => node.isInput = true
+
+  @[simp]
+  def Predicate.isOp : Predicate :=
+    λ node _ _ => node.isOp = true
+
+  @[simp]
+  def Predicate.and (p1 p2 : Predicate) : Predicate :=
+    λ node s1 s2 => p1 node s1 s2 ∧ p2 node s1 s2
+
+  infixr:50 " ∧ " => Predicate.and
+
+  @[simp]
+  def DFG.MultiStep (dfg : DFG) := Relation.ReflTransGen (PredicatedStep (DFGMem dfg))
 
   @[refl]
-  theorem DFG.MultiStep.refl' {dfg : DFG} : dfg.MultiStep s s := Relation.ReflTransGen.refl
+  theorem DFG.MultiStep.refl' {dfg : DFG} : dfg.MultiStep s s :=
+    Relation.ReflTransGen.refl
+
+  @[trans]
+  theorem DFG.MultiStep.trans' {dfg : DFG} (s1 : dfg.MultiStep a b) (s2 : dfg.MultiStep b c) : dfg.MultiStep a c :=
+    Relation.ReflTransGen.trans s1 s2
+
+  @[simp]
+  def DFG.MultiStepContained {dfg : DFG} (low high : Nid) :=
+    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high))
+
+  @[simp]
+  def DFG.MultiStepContainedInput {dfg : DFG} (low high : Nid) :=
+    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high ∧ Predicate.isInput))
+
+  @[simp]
+  def DFG.MultiStepContainedOp {dfg : DFG} (low high : Nid) :=
+    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high ∧ Predicate.isOp))
+
+  inductive DFG.Canonical : DFG → Nid → Nid → State → State → Prop
+    | mk : (s2 : State)
+      → dfg.MultiStepContainedInput low high s1 s2
+      → dfg.MultiStepContainedOp low high s2 s3
+      → DFG.Canonical dfg low high s1 s3
+
+  theorem predicate_transfer {P1 P2 : Predicate} (h : ∀ node, ∀ a b, P1 node a b → P2 node a b)
+    (step : Relation.ReflTransGen (PredicatedStep P1) s1 s2) : Relation.ReflTransGen (PredicatedStep P2) s1 s2 := by
+    induction step with
+    | refl => rfl
+    | tail hd tl ih =>
+      apply Relation.ReflTransGen.tail ih
+      obtain ⟨node, p, step⟩ := tl
+      exact PredicatedStep.node node (h _ _ _ p) step
+
+  theorem DFG.Canonical.to_multi_step {dfg : DFG} {s1 s3 : State} : dfg.Canonical low high s1 s3 → dfg.MultiStep s1 s3
+  | .mk s2 t1 t2 => by
+    trans s2
+    · apply predicate_transfer (λ _ _ _ h => h.left) t1
+    · apply predicate_transfer (λ _ _ _ h => h.left) t2
 
   -- inductive DFG.Step : DFG → State → State → Prop
   --   | node : (node : Node) → node ∈ dfg → node.Step s1 s2 → DFG.Step dfg s1 s2
@@ -1288,9 +1350,13 @@ namespace Compiler
   --         · apply Node.Step.subst (.binOp (by aesop) (by aesop))
   --           aesop
 
+  lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nid}
+    (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical maxId (compileAux maxId e).2 ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) := by
+    sorry
+
   theorem compile_value_correct {e : Exp} {env : Env} {v : Ty} (eval : Eval env e v)
     : (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
-    (compileAux_canonical_trace eval).to_steps
+    (compileAux_canonical_trace eval).DFG.Canonical.to_multi_step
 
   theorem compile_confluence {e : Exp} {a b c : State}
     : (compile e).dfg.MultiStep a b → (compile e).dfg.MultiStep a c
@@ -1331,7 +1397,9 @@ namespace Compiler
           have := (compile_ret_iff_output _ h_mem).mp (Port.mk.inj h).left
           simp_all
         apply this
-        simp_all
+        simp only [MarkedDFG.finalState, Nid.fst, compile, ne_eq, ite_eq_right_iff,
+          List.cons_ne_self, imp_false, Decidable.not_not] at h1
+        exact h1
 
   theorem compile_correct {e : Exp} {env : Env} {v : Ty}
     : Eval env e v
