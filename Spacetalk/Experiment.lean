@@ -153,19 +153,28 @@ namespace Df
     Relation.ReflTransGen.refl
 
   @[trans]
-  theorem DFG.MultiStep.trans' {dfg : DFG} (s1 : dfg.MultiStep a b) (s2 : dfg.MultiStep b c) : dfg.MultiStep a c :=
+  theorem DFG.MultiStep.trans' (dfg : DFG) (s1 : dfg.MultiStep a b) (s2 : dfg.MultiStep b c) : dfg.MultiStep a c :=
     Relation.ReflTransGen.trans s1 s2
 
   @[simp]
-  def DFG.MultiStepContained {dfg : DFG} (low high : Nat) :=
+  def DFG.MultiStepContained (dfg : DFG) (low high : Nat) :=
     Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high))
 
   @[simp]
-  def DFG.MultiStepContainedInput {dfg : DFG} (low high : Nat) :=
+  def DFG.MultiStepContainedInput (dfg : DFG) (low high : Nat) :=
     Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high ∧ Predicate.isInput))
 
+  @[refl]
+  def DFG.MultiStepContainedInput.refl' {dfg : DFG} {low high : Nat} : dfg.MultiStepContainedInput low high s s :=
+    .refl
+
+  @[trans]
+  def DFG.MultiStepContainedInput.trans' {dfg : DFG} {low high : Nat} :
+    dfg.MultiStepContainedInput low high s1 s2 → dfg.MultiStepContainedInput low high s2 s3 → dfg.MultiStepContainedInput low high s1 s3 :=
+    .trans
+
   @[simp]
-  def DFG.MultiStepContainedOp {dfg : DFG} (low high : Nat) :=
+  def DFG.MultiStepContainedOp (dfg : DFG) (low high : Nat) :=
     Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high ∧ Predicate.isOp))
 
   @[refl]
@@ -634,7 +643,6 @@ namespace Compiler
     (h2 : ∀ var ∈ dfg2.vars, var.2.node < maxId)
     : ∀ var ∈ (mergeVars dfg1 dfg2).2, var.2.node < maxId := by
     intro var h_mem
-    simp [mergeVars] at h_mem
     apply List.foldl_induction (f := mergeVarsAux dfg1) (dfg1.dfg ++ dfg2.dfg, dfg1.vars) dfg2.vars
       (λ x => ∀ var ∈ x.2, var.2.node < maxId) _ _ _ h_mem
     <;> aesop
@@ -645,20 +653,43 @@ namespace Compiler
     : ∀ var ∈ (mergeTwo dfg1 dfg2 maxId).2, var.2.node < maxId :=
     mergeVars_vars_id_lt h1 h2
 
-  lemma compile_vars_id_lt {e : Exp} {maxId : Nat}
-    : ∀ var ∈ (compileAux maxId e).fst.vars, var.snd.node < (compileAux maxId e).snd := by
+  lemma compile_vars_id_ge_max {e : Exp} {maxId : Nat}
+    : ∀ var ∈ (compileAux maxId e).1.vars, maxId ≤ var.2.node := by
     cases e with
     | var _ => aesop
     | plus e1 e2 =>
       intro var h_mem
-      simp_all only [compileAux, mergeTwo, List.map_map]
+      apply List.foldl_induction (f := mergeVarsAux (compileAux maxId e1).1)
+        ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars)
+        (compileAux (compileAux maxId e1).2 e2).1.vars
+        (λ x => ∀ var ∈ x.2, maxId ≤ var.2.node) _ _ _ h_mem
+      · intro var h_mem
+        exact compile_vars_id_ge_max var h_mem
+      · intro agg x h_mem_x ih var h_mem_var
+        simp only [mergeVarsAux] at h_mem_var
+        split at h_mem_var
+        · split at h_mem_var
+          · exact ih var h_mem_var
+          · suffices maxId ≤ x.2.node by aesop
+            simp at h_mem_x
+            trans (compileAux maxId e1).2
+            · exact Nat.le_of_lt compile_maxId_lt
+            · exact compile_vars_id_ge_max x h_mem_x
+        · aesop
+
+  lemma compile_vars_id_lt_newMax {e : Exp} {maxId : Nat}
+    : ∀ var ∈ (compileAux maxId e).1.vars, var.2.node < (compileAux maxId e).2 := by
+    cases e with
+    | var _ => aesop
+    | plus e1 e2 =>
+      intro var h_mem
       trans (compileAux (compileAux maxId e1).2 e2).2
       · apply mergeVars_vars_id_lt _ _ var h_mem
         · intro var h_mem
           trans (compileAux maxId e1).2
-          · exact compile_vars_id_lt var h_mem
+          · exact compile_vars_id_lt_newMax var h_mem
           · exact compile_maxId_lt
-        · exact compile_vars_id_lt
+        · exact compile_vars_id_lt_newMax
       · simp
 
   lemma initial_final_eq_false {e : Exp} {maxId : Nat} {env : Env} {v : Ty}
@@ -693,10 +724,10 @@ namespace Compiler
         apply merge_vars_id_lt _ _ var h_mem
         · intro var h_mem
           trans (compileAux maxId e1).2
-          · exact compile_vars_id_lt var h_mem
+          · exact compile_vars_id_lt_newMax var h_mem
           · exact compile_maxId_lt
         · intro var h_mem
-          exact compile_vars_id_lt var h_mem
+          exact compile_vars_id_lt_newMax var h_mem
 
   @[simp]
   def mergedState (dfg1 dfg2 : MarkedDFG) (nid : Nat) (s : State) : State :=
@@ -1359,6 +1390,27 @@ namespace Compiler
   --         · apply Node.Step.subst (.binOp (by aesop) (by aesop))
   --           aesop
 
+  lemma compileAux_initial_state_id_range (e : Exp) (maxId : Nat)
+    : ∀ port, port.node < maxId ∨ port.node ≥ (compileAux maxId e).2 → (compileAux maxId e).1.initialState env port = [] := by
+    intro port h_or
+    apply h_or.elim
+    · intro h
+      apply List.foldl_induction State.empty (compileAux maxId e).1.vars
+        (λ x => x port = [])
+      · simp
+      · intro agg x h_mem ih
+        obtain ⟨name, newPort⟩ := x
+        simp_all
+
+
+        sorry
+    · sorry
+
+  lemma compileAux_plus_initial_state_decompose {e1 e2 : Exp}
+    : (compileAux maxId (e1.plus e2)).1.initialState env = (compileAux maxId e1).1.initialState env ⊕ (compileAux (compileAux maxId e1).2 e2).1.initialState env := by
+
+    sorry
+
   lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nat}
     (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical maxId (compileAux maxId e).2 ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) := by
     cases e with
@@ -1405,7 +1457,17 @@ namespace Compiler
           · apply Node.Step.input
             simp
           · aesop
-    | plus e1 e2 => sorry
+    | plus e1 e2 =>
+      cases eval
+      rename_i x y eval1 eval2
+      obtain ⟨e1_s2, e1_t1, e1_t2⟩ := compileAux_canonical_trace eval1 (maxId := maxId)
+      obtain ⟨e2_s2, e2_t1, e2_t2⟩ := compileAux_canonical_trace eval2 (maxId := (compileAux maxId e1).2)
+      apply DFG.Canonical.mk (e1_s2 ⊕ e2_s2) (low := maxId) (high := (compileAux (compileAux maxId e1).2 e2).2 + 2)
+      · trans (e1_s2 ⊕ ((compileAux (compileAux maxId e1).2 e2).1.initialState env))
+        ·
+          sorry
+        · sorry
+      · sorry
 
   theorem compile_value_correct {e : Exp} {env : Env} {v : Ty} (eval : Eval env e v)
     : (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
