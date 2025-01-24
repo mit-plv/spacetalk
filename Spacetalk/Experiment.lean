@@ -1399,12 +1399,22 @@ namespace Compiler
         (λ x => x port = [])
       · simp
       · intro agg x h_mem ih
-        obtain ⟨name, newPort⟩ := x
-        simp_all
-
-
-        sorry
-    · sorry
+        suffices port.node ≠ x.2.node by aesop
+        apply Nat.ne_of_lt
+        apply Nat.lt_of_lt_of_le
+        · exact h
+        · exact compile_vars_id_ge_max _ h_mem
+    · intro h
+      apply List.foldl_induction State.empty (compileAux maxId e).1.vars
+        (λ x => x port = [])
+      · simp
+      · intro agg x h_mem ih
+        suffices port.node ≠ x.2.node by aesop
+        symm
+        apply Nat.ne_of_lt
+        apply Nat.lt_of_lt_of_le
+        · exact compile_vars_id_lt_newMax _ h_mem
+        · exact h
 
   lemma compileAux_plus_initial_state_decompose {e1 e2 : Exp}
     : (compileAux maxId (e1.plus e2)).1.initialState env = (compileAux maxId e1).1.initialState env ⊕ (compileAux (compileAux maxId e1).2 e2).1.initialState env := by
