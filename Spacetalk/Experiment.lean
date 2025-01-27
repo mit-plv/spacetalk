@@ -97,6 +97,10 @@ namespace Df
     λ t => (s1 t) ++ (s2 t)
 
   @[simp]
+  def State.Disjoint (s1 : State) (s2 : State) : Prop :=
+    ∀ p, (s1 p ≠ [] → s2 p = []) ∧ (s2 p ≠ [] → s1 p = [])
+
+  @[simp]
   def BinOp.denote : BinOp → Ty → Ty → Ty
     | plus => HAdd.hAdd
 
@@ -127,7 +131,7 @@ namespace Df
     λ node _ _ => node ∈ dfg
 
   @[simp]
-  def NidContained (low high : Nat) : Predicate :=
+  def NidContained (low high : Nat) (_ : low < high) : Predicate :=
     λ _ s1 s2 =>
       ∀ port, port.node < low ∨ port.node > high → s1 port = s2 port
 
@@ -157,35 +161,35 @@ namespace Df
     Relation.ReflTransGen.trans s1 s2
 
   @[simp]
-  def DFG.MultiStepContained (dfg : DFG) (low high : Nat) :=
-    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high))
+  def DFG.MultiStepContained (dfg : DFG) (low high : Nat) (h : low < high) :=
+    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high h))
 
   @[simp]
-  def DFG.MultiStepContainedInput (dfg : DFG) (low high : Nat) :=
-    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high ∧ Predicate.isInput))
+  def DFG.MultiStepContainedInput (dfg : DFG) (low high : Nat) (h : low < high) :=
+    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high h ∧ Predicate.isInput))
 
   @[refl]
-  def DFG.MultiStepContainedInput.refl' {dfg : DFG} {low high : Nat} : dfg.MultiStepContainedInput low high s s :=
+  def DFG.MultiStepContainedInput.refl' {dfg : DFG} {low high : Nat} {h : low < high} : dfg.MultiStepContainedInput low high h s s :=
     .refl
 
   @[trans]
-  def DFG.MultiStepContainedInput.trans' {dfg : DFG} {low high : Nat} :
-    dfg.MultiStepContainedInput low high s1 s2 → dfg.MultiStepContainedInput low high s2 s3 → dfg.MultiStepContainedInput low high s1 s3 :=
+  def DFG.MultiStepContainedInput.trans' {dfg : DFG} {low high : Nat} {h : low < high} :
+    dfg.MultiStepContainedInput low high h s1 s2 → dfg.MultiStepContainedInput low high h s2 s3 → dfg.MultiStepContainedInput low high h s1 s3 :=
     .trans
 
   @[simp]
-  def DFG.MultiStepContainedOp (dfg : DFG) (low high : Nat) :=
-    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high ∧ Predicate.isOp))
+  def DFG.MultiStepContainedOp (dfg : DFG) (low high : Nat) (h : low < high) :=
+    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high h ∧ Predicate.isOp))
 
   @[refl]
-  theorem DFG.MultiStepContainedOp.refl' {dfg : DFG} {low high : Nat} : dfg.MultiStepContainedOp low high s s :=
+  theorem DFG.MultiStepContainedOp.refl' {dfg : DFG} {low high : Nat} {h : low < high} : dfg.MultiStepContainedOp low high h s s :=
     Relation.ReflTransGen.refl
 
-  inductive DFG.Canonical : DFG → Nat → Nat → State → State → Prop
+  inductive DFG.Canonical : DFG → (low : Nat) → (high : Nat) → (h : low < high) → State → State → Prop
     | mk : (s2 : State)
-      → dfg.MultiStepContainedInput low high s1 s2
-      → dfg.MultiStepContainedOp low high s2 s3
-      → DFG.Canonical dfg low high s1 s3
+      → dfg.MultiStepContainedInput low high h s1 s2
+      → dfg.MultiStepContainedOp low high h s2 s3
+      → DFG.Canonical dfg low high h s1 s3
 
   theorem predicate_transfer {P1 P2 : Predicate} (h : ∀ node, ∀ a b, P1 node a b → P2 node a b)
     (step : Relation.ReflTransGen (PredicatedStep P1) s1 s2) : Relation.ReflTransGen (PredicatedStep P2) s1 s2 := by
@@ -196,7 +200,10 @@ namespace Df
       obtain ⟨node, p, step⟩ := tl
       exact PredicatedStep.node node (h _ _ _ p) step
 
-  theorem DFG.Canonical.to_multi_step {dfg : DFG} {s1 s3 : State} : dfg.Canonical low high s1 s3 → dfg.MultiStep s1 s3
+  theorem PredicatedStep.subst_right (s : PredicatedStep P s1 s2) (heq : s2 = s3) : PredicatedStep P s1 s3 :=
+    heq ▸ s
+
+  theorem DFG.Canonical.to_multi_step {dfg : DFG} {s1 s3 : State} {h : low < high} : dfg.Canonical low high h s1 s3 → dfg.MultiStep s1 s3
   | .mk s2 t1 t2 => by
     trans s2
     · apply predicate_transfer (λ _ _ _ h => h.left) t1
@@ -291,22 +298,22 @@ namespace Compiler
   @[simp]
   def mergeVarsAux (g1 : MarkedDFG) : DFG × VarMap → String × Port → DFG × VarMap :=
     λ (dfg, vars) (s, t2) =>
-        match dfg.find? (·.id = t2.node) with
-        | some ⟨_, .input ts2⟩ =>
-          match g1.vars.find? (·.fst = s) with
-          | some (_, t1) =>
-            let dfg := (dfg.filter (·.id ≠ t2.node)).map (
-              λ node =>
-                if node.id = t1.node then
-                  match node.op with
-                  | .input ts1 => {node with op := .input (ts1 ++ ts2)}
-                  | _ => node
-                else
-                  node
-            )
-            (dfg, vars)
-          | none => (dfg, (s, t2) :: vars)
-        | _ => (dfg, vars)
+      match dfg.find? (·.id = t2.node) with
+      | some ⟨_, .input ts2⟩ =>
+        match g1.vars.find? (·.fst = s) with
+        | some (_, t1) =>
+          let dfg := (dfg.filter (·.id ≠ t2.node)).map (
+            λ node =>
+              if node.id = t1.node then
+                match node.op with
+                | .input ts1 => {node with op := .input (ts1 ++ ts2)}
+                | _ => node
+              else
+                node
+          )
+          (dfg, vars)
+        | none => (dfg, (s, t2) :: vars)
+      | _ => (dfg, vars)
 
   def mergeVars (g1 g2 : MarkedDFG) : DFG × VarMap :=
     g2.vars.foldl (mergeVarsAux g1) (g1.dfg ++ g2.dfg, g1.vars)
@@ -1027,280 +1034,345 @@ namespace Compiler
           suffices h : a.id = b.id by simp_all
           aesop
 
-  -- theorem op_step_to_merged_left {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
-  --   (s : (compileAux maxId e1).1.dfg.OpStep s1 s2)
-  --   : (MergeTwo e1 e2 maxId).1.OpStep (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) :=
-  --   match s with
-  --   | .node ⟨nid, .binOp op ts⟩ _ h_mem s =>
-  --     match s with
-  --     | .binOp h1 h2 => by
-  --       let newRet := (compileAux (compileAux maxId e1).2 e2).2
-  --       let newTs :=
-  --         (ts.map (λ t => if t = (compileAux maxId e1).1.ret then newRet.fst else t)).map
-  --                 (λ t => if t = (compileAux (compileAux maxId e1).2 e2).1.ret then newRet.snd else t)
-  --       have h_mem' : ⟨nid, .binOp op newTs⟩ ∈ (MergeTwo e1 e2 maxId).1 := by
-  --         apply List.mem_filter.mpr
-  --         apply And.intro
-  --         · apply List.mem_map.mpr
-  --           exists ⟨nid, .binOp op (ts.map (λ t => if t = (compileAux maxId e1).1.ret then newRet.fst else t))⟩
-  --           apply And.intro
-  --           · apply List.mem_map.mpr
-  --             exists ⟨nid, .binOp op ts⟩
-  --             apply And.intro
-  --             · apply (List.foldl_induction
-  --                 ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars)
-  --                 (compileAux (compileAux maxId e1).2 e2).1.vars
-  --                 (λ agg => NodeEq agg.1 ∧ ⟨nid, .binOp op ts⟩ ∈ (Prod.fst agg)) _ _).right
-  --               · apply And.intro
-  --                 · apply append_node_eq
-  --                   · apply compile_node_eq
-  --                   · apply compile_node_eq
-  --                   · apply compile_seq_node_disj
-  --                 · simp_all
-  --               · intro agg x h_mem_x ih
-  --                 apply And.intro
-  --                 · exact node_eq_mergeVars ih.left
-  --                 · simp only [mergeVarsAux]
-  --                   split
-  --                   next heq =>
-  --                     rename_i _ id ts2
-  --                     simp
-  --                     split
-  --                     next =>
-  --                       apply List.mem_map.mpr
-  --                       exists ⟨nid, .binOp op ts⟩
-  --                       apply And.intro
-  --                       · apply List.mem_filter.mpr
-  --                         apply And.intro ih.right
-  --                         simp only [Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not]
-  --                         intro h
-  --                         suffices h : (⟨nid, .binOp op ts⟩ : Node) = ⟨nid, .input ts2⟩ by aesop
-  --                         apply ih.left _ ih.right _ _ (by simp)
-  --                         have : nid = id := by have := List.find?_some heq; aesop
-  --                         rw [this]
-  --                         apply List.mem_of_find?_eq_some heq
-  --                       · aesop
-  --                     next => aesop
-  --                   next => aesop
-  --             · simp only [Node.updateReturn]
-  --           · simp only [Node.updateReturn]
-  --         · simp
-  --       have h_nid_ne_ret : nid ≠ (compileAux (compileAux maxId e1).2 e2).2 := by
-  --         have h1 : nid < (compileAux maxId e1).2 := compile_id_lt_max _ h_mem
-  --         have h2 : (compileAux maxId e1).2 < (compileAux (compileAux maxId e1).2 e2).2 := compile_maxId_lt
-  --         have := Nat.lt_trans h1 h2
-  --         intro heq
-  --         apply (lt_self_iff_false nid).mp
-  --         rw [←heq] at this
-  --         exact this
-  --       have h_fst_ne_ret : ¬(⟨nid, 0⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 0⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
-  --         simp only [⟨nid, 0⟩, not_or]
-  --         apply And.intro
-  --         · intro heq
-  --           have h_id : nid = (compileAux maxId e1).1.ret.node := (Port.mk.inj heq).left
-  --           have := compileAux_ret_iff_output ⟨nid, .binOp op ts⟩ h_mem
-  --           have := this.mp h_id
-  --           contradiction
-  --         · intro heq
-  --           have h_id : nid = (compileAux (compileAux maxId e1).2 e2).1.ret.node := (Port.mk.inj heq).left
-  --           have h_lt : nid < (compileAux maxId e1).2 := compile_id_lt_max _ h_mem
-  --           have := @compileAux_max_lt_ret e2 (compileAux maxId e1).2
-  --           have := Nat.lt_trans h_lt this
-  --           have := Nat.ne_of_lt this
-  --           contradiction
-  --       have h_snd_ne_ret : ¬(⟨nid, 1⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 1⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
-  --         simp only [⟨nid, 0⟩, not_or]
-  --         apply And.intro
-  --         · intro heq
-  --           have h_id : nid = (compileAux maxId e1).1.ret.node := (Port.mk.inj heq).left
-  --           have := compileAux_ret_iff_output ⟨nid, .binOp op ts⟩ h_mem
-  --           have := this.mp h_id
-  --           contradiction
-  --         · intro heq
-  --           have h_id : nid = (compileAux (compileAux maxId e1).2 e2).1.ret.node := (Port.mk.inj heq).left
-  --           have h_lt : nid < (compileAux maxId e1).2 := compile_id_lt_max _ h_mem
-  --           have := @compileAux_max_lt_ret e2 (compileAux maxId e1).2
-  --           have := Nat.lt_trans h_lt this
-  --           have := Nat.ne_of_lt this
-  --           contradiction
-  --       have h_fst_eq : MergedState e1 e2 maxId s1 ⟨nid, 0⟩ = s1 ⟨nid, 0⟩ := mergedState_eq h_nid_ne_ret h_fst_ne_ret
-  --       have h_snd_eq : MergedState e1 e2 maxId s1 ⟨nid, 1⟩ = s1 ⟨nid, 1⟩ := mergedState_eq h_nid_ne_ret h_snd_ne_ret
-  --       apply DFG.OpStep.subst
-  --       · apply DFG.OpStep.node ⟨nid, .binOp op newTs⟩
-  --         · simp
-  --         · exact h_mem'
-  --         · exact (.binOp (h_fst_eq ▸ h1) (h_snd_eq ▸ h2))
-  --       · simp_rw [h_fst_eq, h_snd_eq]
-  --         rw [MergedState_pop_assoc h_nid_ne_ret h_fst_ne_ret]
-  --         rw [MergedState_pop_assoc h_nid_ne_ret h_snd_ne_ret]
-  --         simp only [newTs, newRet]
-  --         rw [←List.comp_map]
-  --         have : ((fun t =>
-  --                     if t = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
-  --                     else t) ∘
-  --                   fun t => if t = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst else t) =
-  --                 (fun p =>
-  --               if p = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst
-  --               else
-  --                 if p = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
-  --                 else p) := by
-  --           funext x
-  --           if x = (compileAux maxId e1).1.ret then
-  --             simp_all only [⟨nid, 0⟩, ne_eq, ⟨nid, 1⟩, mergeTwo, List.map_map, List.mem_filter,
-  --               List.mem_map, Function.comp_apply, and_true, not_or, mergedState, Port.mk.injEq,
-  --               zero_ne_one, and_self, or_self, ite_false, one_ne_zero, ite_true, ite_eq_right_iff]
-  --             intro h_ret_eq
-  --             have h_lt := @compileAux_ret_lt_newMax e2 (compileAux maxId e1).2
-  --             have h_eq := (Port.mk.inj h_ret_eq).left.symm
-  --             have := Nat.ne_of_lt h_lt
-  --             contradiction
-  --           else
-  --             aesop
-  --         rw [this]
-  --         apply @MergedState_pushAll_assoc e1 e2 maxId (s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) (op.denote ((s1 ⟨nid, 0⟩).head h1) ((s1 ⟨nid, 1⟩).head h2)) ts
-  --         have h_lt := @compile_maxId_lt e2 (compileAux maxId e1).2
-  --         have := compile_binop_consumer_lt_max h_mem
-  --         intro p h_mem
-  --         have := this p h_mem
-  --         have := Nat.lt_trans this h_lt
-  --         apply Nat.ne_of_lt this
+  lemma plus_maxId_lt : maxId < ((compileAux (compileAux maxId e1).2 e2).2 + 2) := by
+    trans (compileAux maxId e1).2
+    · exact compile_maxId_lt
+    · trans (compileAux (compileAux maxId e1).2 e2).2
+      · exact compile_maxId_lt
+      · simp
 
-  -- theorem op_multi_step_to_merged_left {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
-  --   (step : (compileAux maxId e1).1.dfg.MultiOpStep s1 s2)
-  --   : (MergeTwo e1 e2 maxId).1.MultiOpStep (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) := by
-  --   induction step with
-  --   | refl => rfl
-  --   | tail hd tl ih => exact Relation.ReflTransGen.tail ih (op_step_to_merged_left tl)
+  theorem compile_plus_port_lt_false {P : Prop} {portId : Nat} {port : Port}
+    (h_lt : port.node < maxId)
+    (h_eq : port = ⟨(compileAux (compileAux maxId e1).2 e2).2, portId⟩)
+    : P := by
+    suffices h : maxId < (compileAux (compileAux maxId e1).2 e2).2 by
+      have := (Port.mk.inj h_eq).left
+      have := Nat.lt_trans h_lt h
+      simp_all
+    trans (compileAux maxId e1).2
+    <;> exact compile_maxId_lt
 
-  -- theorem op_step_to_merged_right {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
-  --   (s : (compileAux (compileAux maxId e1).2 e2).1.dfg.OpStep s1 s2)
-  --   : (MergeTwo e1 e2 maxId).1.OpStep (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) :=
-  --   match s with
-  --   | .node ⟨nid, .binOp op ts⟩ _ h_mem s =>
-  --     match s with
-  --     | .binOp h1 h2 => by
-  --       let newRet := (compileAux (compileAux maxId e1).2 e2).2
-  --       let newTs :=
-  --         (ts.map (λ t => if t = (compileAux maxId e1).1.ret then newRet.fst else t)).map
-  --                 (λ t => if t = (compileAux (compileAux maxId e1).2 e2).1.ret then newRet.snd else t)
-  --       have h_mem' : ⟨nid, .binOp op newTs⟩ ∈ (MergeTwo e1 e2 maxId).1 := by
-  --         apply List.mem_filter.mpr
-  --         apply And.intro
-  --         · apply List.mem_map.mpr
-  --           exists ⟨nid, .binOp op (ts.map (λ t => if t = (compileAux maxId e1).1.ret then newRet.fst else t))⟩
-  --           apply And.intro
-  --           · apply List.mem_map.mpr
-  --             exists ⟨nid, .binOp op ts⟩
-  --             apply And.intro
-  --             · apply (List.foldl_induction
-  --                 ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars)
-  --                 (compileAux (compileAux maxId e1).2 e2).1.vars
-  --                 (λ agg => NodeEq agg.1 ∧ ⟨nid, .binOp op ts⟩ ∈ (Prod.fst agg)) _ _).right
-  --               · apply And.intro
-  --                 · apply append_node_eq
-  --                   · apply compile_node_eq
-  --                   · apply compile_node_eq
-  --                   · apply compile_seq_node_disj
-  --                 · simp_all
-  --               · intro agg x h_mem_x ih
-  --                 apply And.intro
-  --                 · exact node_eq_mergeVars ih.left
-  --                 · simp only [mergeVarsAux]
-  --                   split
-  --                   next heq =>
-  --                     rename_i _ id ts2
-  --                     simp
-  --                     split
-  --                     next =>
-  --                       apply List.mem_map.mpr
-  --                       exists ⟨nid, .binOp op ts⟩
-  --                       apply And.intro
-  --                       · apply List.mem_filter.mpr
-  --                         apply And.intro ih.right
-  --                         simp only [Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not]
-  --                         intro h
-  --                         suffices h : (⟨nid, .binOp op ts⟩ : Node) = ⟨nid, .input ts2⟩ by aesop
-  --                         apply ih.left _ ih.right _ _ (by simp)
-  --                         have : nid = id := by have := List.find?_some heq; aesop
-  --                         rw [this]
-  --                         apply List.mem_of_find?_eq_some heq
-  --                       · aesop
-  --                     next => aesop
-  --                   next => aesop
-  --             · simp only [Node.updateReturn]
-  --           · simp only [Node.updateReturn]
-  --         · simp
-  --       have h_nid_ne_ret : nid ≠ (compileAux (compileAux maxId e1).2 e2).2 := by
-  --         suffices h : nid < (compileAux (compileAux maxId e1).2 e2).2 from Nat.ne_of_lt h
-  --         exact compile_id_lt_max _ h_mem
-  --       have h_fst_ne_ret : ¬(⟨nid, 0⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 0⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
-  --         simp only [⟨nid, 0⟩, not_or]
-  --         apply And.intro
-  --         · intro heq
-  --           apply Nat.not_le_of_lt
-  --           · exact (Port.mk.inj heq).left ▸ compileAux_ret_lt_newMax
-  --           · exact compileAux_maxId_le_id _ h_mem
-  --         · intro heq
-  --           have := (compileAux_ret_iff_output _ h_mem).mp
-  --           simp only [NodeOp.isOutput, Bool.false_eq_true, imp_false] at this
-  --           exact this (Port.mk.inj heq).left
-  --       have h_snd_ne_ret : ¬(⟨nid, 1⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 1⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
-  --         simp only [⟨nid, 0⟩, not_or]
-  --         apply And.intro
-  --         · intro heq
-  --           apply Nat.not_le_of_lt
-  --           · exact (Port.mk.inj heq).left ▸ compileAux_ret_lt_newMax
-  --           · exact compileAux_maxId_le_id _ h_mem
-  --         · intro heq
-  --           have := (compileAux_ret_iff_output _ h_mem).mp
-  --           simp only [NodeOp.isOutput, Bool.false_eq_true, imp_false] at this
-  --           exact this (Port.mk.inj heq).left
-  --       have h_fst_eq : MergedState e1 e2 maxId s1 ⟨nid, 0⟩ = s1 ⟨nid, 0⟩ := mergedState_eq h_nid_ne_ret h_fst_ne_ret
-  --       have h_snd_eq : MergedState e1 e2 maxId s1 ⟨nid, 1⟩ = s1 ⟨nid, 1⟩ := mergedState_eq h_nid_ne_ret h_snd_ne_ret
-  --       apply DFG.OpStep.subst
-  --       · apply DFG.OpStep.node ⟨nid, .binOp op newTs⟩
-  --         · simp
-  --         · exact h_mem'
-  --         · exact (.binOp (h_fst_eq ▸ h1) (h_snd_eq ▸ h2))
-  --       · simp_rw [h_fst_eq, h_snd_eq]
-  --         rw [MergedState_pop_assoc h_nid_ne_ret h_fst_ne_ret]
-  --         rw [MergedState_pop_assoc h_nid_ne_ret h_snd_ne_ret]
-  --         simp only [newTs, newRet]
-  --         rw [←List.comp_map]
-  --         have : ((fun t =>
-  --                     if t = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
-  --                     else t) ∘
-  --                   fun t => if t = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst else t) =
-  --                 (fun p =>
-  --               if p = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst
-  --               else
-  --                 if p = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
-  --                 else p) := by
-  --           funext x
-  --           if x = (compileAux maxId e1).1.ret then
-  --             simp_all only [⟨nid, 0⟩, ne_eq, ⟨nid, 1⟩, mergeTwo, List.map_map, List.mem_filter,
-  --               List.mem_map, Function.comp_apply, and_true, not_or, mergedState, Port.mk.injEq,
-  --               zero_ne_one, and_self, or_self, ite_false, one_ne_zero, ite_true, ite_eq_right_iff]
-  --             intro h_ret_eq
-  --             have h_lt := @compileAux_ret_lt_newMax e2 (compileAux maxId e1).2
-  --             have h_eq := (Port.mk.inj h_ret_eq).left.symm
-  --             have := Nat.ne_of_lt h_lt
-  --             contradiction
-  --           else
-  --             aesop
-  --         rw [this]
-  --         apply @MergedState_pushAll_assoc e1 e2 maxId (s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) (op.denote ((s1 ⟨nid, 0⟩).head h1) ((s1 ⟨nid, 1⟩).head h2)) ts
-  --         have h_lt := @compile_maxId_lt e2 (compileAux maxId e1).2
-  --         have := compile_binop_consumer_lt_max h_mem
-  --         intro p h_mem
-  --         exact Nat.ne_of_lt (this p h_mem)
+  theorem compile_port_lt_maxId_ret_false {P : Prop} {port : Port}
+    (h_lt : port.node < maxId) (h_eq : port = (compileAux maxId e1).1.ret)
+    : P := by
+    have := @compileAux_max_lt_ret e1 maxId
+    have := Nat.lt_trans h_lt this
+    have := (Port.mk.inj h_eq).left
+    simp_all
 
-  -- theorem op_multi_step_to_merged_right {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
-  --   (step : (compileAux (compileAux maxId e1).2 e2).1.dfg.MultiOpStep s1 s2)
-  --   : (MergeTwo e1 e2 maxId).1.MultiOpStep (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) := by
-  --   induction step with
-  --   | refl => rfl
-  --   | tail hd tl ih => exact Relation.ReflTransGen.tail ih (op_step_to_merged_right tl)
+  theorem compile_plus_port_lt_maxId_ret_false {P : Prop} {port : Port}
+    (h_lt : port.node < maxId) (h_eq : port = (compileAux (compileAux maxId e1).2 e2).1.ret)
+    : P := by
+    have := @compileAux_max_lt_ret e2 (compileAux maxId e1).2
+    have : port.node < (compileAux (compileAux maxId e1).2 e2).1.ret.node := by
+      trans maxId
+      · exact h_lt
+      · trans (compileAux maxId e1).2
+        · exact compile_maxId_lt
+        · exact this
+    have := (Port.mk.inj h_eq).left
+    simp_all
+
+  theorem op_step_to_merged_left {e1 e2 : Exp} {maxId : Nat} {s1 s2 : State}
+    (s : PredicatedStep (DFGMem (compileAux maxId e1).1.dfg ∧ NidContained maxId (compileAux maxId e1).2 compile_maxId_lt ∧ Predicate.isOp) s1 s2)
+    : PredicatedStep (DFGMem (MergeTwo e1 e2 maxId).1 ∧ NidContained maxId ((compileAux (compileAux maxId e1).2 e2).2 + 2) plus_maxId_lt ∧ Predicate.isOp)
+        (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) :=
+    match s with
+    | .node ⟨nid, .binOp op ts⟩ ⟨h_mem, ⟨h_nid, _⟩⟩ s =>
+      match s with
+      | .binOp h1 h2 => by
+        let newRet := (compileAux (compileAux maxId e1).2 e2).2
+        let newTs :=
+          (ts.map (λ t => if t = (compileAux maxId e1).1.ret then ⟨newRet, 0⟩ else t)).map
+                  (λ t => if t = (compileAux (compileAux maxId e1).2 e2).1.ret then ⟨newRet, 1⟩ else t)
+        have h_mem' : ⟨nid, .binOp op newTs⟩ ∈ (MergeTwo e1 e2 maxId).1 := by
+          apply List.mem_filter.mpr
+          apply And.intro
+          · apply List.mem_map.mpr
+            exists ⟨nid, .binOp op (ts.map (λ t => if t = (compileAux maxId e1).1.ret then ⟨newRet, 0⟩ else t))⟩
+            apply And.intro
+            · apply List.mem_map.mpr
+              exists ⟨nid, .binOp op ts⟩
+              apply And.intro
+              · apply (List.foldl_induction
+                  ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars)
+                  (compileAux (compileAux maxId e1).2 e2).1.vars
+                  (λ agg => NodeEq agg.1 ∧ ⟨nid, .binOp op ts⟩ ∈ (Prod.fst agg)) _ _).right
+                · apply And.intro
+                  · apply append_node_eq
+                    · apply compile_node_eq
+                    · apply compile_node_eq
+                    · apply compile_seq_node_disj
+                  · simp_all
+                · intro agg x h_mem_x ih
+                  apply And.intro
+                  · exact node_eq_mergeVars ih.left
+                  · simp only [mergeVarsAux]
+                    split
+                    next heq =>
+                      rename_i _ id ts2
+                      simp
+                      split
+                      next =>
+                        apply List.mem_map.mpr
+                        exists ⟨nid, .binOp op ts⟩
+                        apply And.intro
+                        · apply List.mem_filter.mpr
+                          apply And.intro ih.right
+                          simp only [Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not]
+                          intro h
+                          suffices h : (⟨nid, .binOp op ts⟩ : Node) = ⟨nid, .input ts2⟩ by aesop
+                          apply ih.left _ ih.right _ _ (by simp)
+                          have : nid = id := by have := List.find?_some heq; aesop
+                          rw [this]
+                          apply List.mem_of_find?_eq_some heq
+                        · aesop
+                      next => aesop
+                    next => aesop
+              · sorry
+            · sorry
+          · simp
+        have h_nid_ne_ret : nid ≠ (compileAux (compileAux maxId e1).2 e2).2 := by
+          have h1 : nid < (compileAux maxId e1).2 := compile_id_lt_max _ h_mem
+          have h2 : (compileAux maxId e1).2 < (compileAux (compileAux maxId e1).2 e2).2 := compile_maxId_lt
+          have := Nat.lt_trans h1 h2
+          intro heq
+          apply (lt_self_iff_false nid).mp
+          rw [←heq] at this
+          exact this
+        have h_fst_ne_ret : ¬(⟨nid, 0⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 0⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
+          simp only [not_or]
+          apply And.intro
+          · intro heq
+            have h_id : nid = (compileAux maxId e1).1.ret.node := (Port.mk.inj heq).left
+            have := compileAux_ret_iff_output ⟨nid, .binOp op ts⟩ h_mem
+            have := this.mp h_id
+            contradiction
+          · intro heq
+            have h_id : nid = (compileAux (compileAux maxId e1).2 e2).1.ret.node := (Port.mk.inj heq).left
+            have h_lt : nid < (compileAux maxId e1).2 := compile_id_lt_max _ h_mem
+            have := @compileAux_max_lt_ret e2 (compileAux maxId e1).2
+            have := Nat.lt_trans h_lt this
+            have := Nat.ne_of_lt this
+            contradiction
+        have h_snd_ne_ret : ¬(⟨nid, 1⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 1⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
+          simp only [not_or]
+          apply And.intro
+          · intro heq
+            have h_id : nid = (compileAux maxId e1).1.ret.node := (Port.mk.inj heq).left
+            have := compileAux_ret_iff_output ⟨nid, .binOp op ts⟩ h_mem
+            have := this.mp h_id
+            contradiction
+          · intro heq
+            have h_id : nid = (compileAux (compileAux maxId e1).2 e2).1.ret.node := (Port.mk.inj heq).left
+            have h_lt : nid < (compileAux maxId e1).2 := compile_id_lt_max _ h_mem
+            have := @compileAux_max_lt_ret e2 (compileAux maxId e1).2
+            have := Nat.lt_trans h_lt this
+            have := Nat.ne_of_lt this
+            contradiction
+        have h_fst_eq : MergedState e1 e2 maxId s1 ⟨nid, 0⟩ = s1 ⟨nid, 0⟩ := mergedState_eq h_nid_ne_ret h_fst_ne_ret
+        have h_snd_eq : MergedState e1 e2 maxId s1 ⟨nid, 1⟩ = s1 ⟨nid, 1⟩ := mergedState_eq h_nid_ne_ret h_snd_ne_ret
+        apply PredicatedStep.subst_right
+        · apply PredicatedStep.node ⟨nid, .binOp op newTs⟩
+          · apply And.intro
+            · aesop
+            · apply And.intro
+              · intro port h_port
+                apply Or.elim h_port
+                · intro h_port_node_id
+                  simp only [mergedState]
+                  split
+                  next h => exact compile_plus_port_lt_false h_port_node_id h
+                  next =>
+                    split
+                    next h => exact compile_plus_port_lt_false h_port_node_id h
+                    next =>
+                      split
+                      next h =>
+                        apply Or.elim h
+                        · intro h
+                          exact compile_port_lt_maxId_ret_false h_port_node_id h
+                        · intro h
+                          exact compile_plus_port_lt_maxId_ret_false h_port_node_id h
+                      next => rfl
+                · intro h_port_node_id
+
+                  sorry
+              · sorry
+          · exact (.binOp (h_fst_eq ▸ h1) (h_snd_eq ▸ h2))
+        · simp_rw [h_fst_eq, h_snd_eq]
+          rw [MergedState_pop_assoc h_nid_ne_ret h_fst_ne_ret]
+          rw [MergedState_pop_assoc h_nid_ne_ret h_snd_ne_ret]
+          simp only [newTs, newRet]
+          rw [←List.comp_map]
+          have : ((fun t =>
+                      if t = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
+                      else t) ∘
+                    fun t => if t = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst else t) =
+                  (fun p =>
+                if p = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst
+                else
+                  if p = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
+                  else p) := by
+            funext x
+            if x = (compileAux maxId e1).1.ret then
+              simp_all only [⟨nid, 0⟩, ne_eq, ⟨nid, 1⟩, mergeTwo, List.map_map, List.mem_filter,
+                List.mem_map, Function.comp_apply, and_true, not_or, mergedState, Port.mk.injEq,
+                zero_ne_one, and_self, or_self, ite_false, one_ne_zero, ite_true, ite_eq_right_iff]
+              intro h_ret_eq
+              have h_lt := @compileAux_ret_lt_newMax e2 (compileAux maxId e1).2
+              have h_eq := (Port.mk.inj h_ret_eq).left.symm
+              have := Nat.ne_of_lt h_lt
+              contradiction
+            else
+              aesop
+          rw [this]
+          apply @MergedState_pushAll_assoc e1 e2 maxId (s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) (op.denote ((s1 ⟨nid, 0⟩).head h1) ((s1 ⟨nid, 1⟩).head h2)) ts
+          have h_lt := @compile_maxId_lt e2 (compileAux maxId e1).2
+          have := compile_binop_consumer_lt_max h_mem
+          intro p h_mem
+          have := this p h_mem
+          have := Nat.lt_trans this h_lt
+          apply Nat.ne_of_lt this
+
+  theorem op_multi_step_to_merged_left {e1 e2 : Exp} {maxId : Nat} {s1 s2 : State}
+    (step : (compileAux maxId e1).1.dfg.MultiStepContainedOp maxId (compileAux maxId e1).2 compile_maxId_lt s1 s2)
+    : (MergeTwo e1 e2 maxId).1.MultiStepContainedOp maxId ((compileAux (compileAux maxId e1).2 e2).2 + 2) plus_maxId_lt
+        (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) := by
+    induction step with
+    | refl => rfl
+    | tail hd tl ih =>
+      exact Relation.ReflTransGen.tail ih (op_step_to_merged_left tl)
+
+  theorem op_step_to_merged_right {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
+    (s : (compileAux (compileAux maxId e1).2 e2).1.dfg.OpStep s1 s2)
+    : (MergeTwo e1 e2 maxId).1.OpStep (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) :=
+    match s with
+    | .node ⟨nid, .binOp op ts⟩ _ h_mem s =>
+      match s with
+      | .binOp h1 h2 => by
+        let newRet := (compileAux (compileAux maxId e1).2 e2).2
+        let newTs :=
+          (ts.map (λ t => if t = (compileAux maxId e1).1.ret then newRet.fst else t)).map
+                  (λ t => if t = (compileAux (compileAux maxId e1).2 e2).1.ret then newRet.snd else t)
+        have h_mem' : ⟨nid, .binOp op newTs⟩ ∈ (MergeTwo e1 e2 maxId).1 := by
+          apply List.mem_filter.mpr
+          apply And.intro
+          · apply List.mem_map.mpr
+            exists ⟨nid, .binOp op (ts.map (λ t => if t = (compileAux maxId e1).1.ret then newRet.fst else t))⟩
+            apply And.intro
+            · apply List.mem_map.mpr
+              exists ⟨nid, .binOp op ts⟩
+              apply And.intro
+              · apply (List.foldl_induction
+                  ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars)
+                  (compileAux (compileAux maxId e1).2 e2).1.vars
+                  (λ agg => NodeEq agg.1 ∧ ⟨nid, .binOp op ts⟩ ∈ (Prod.fst agg)) _ _).right
+                · apply And.intro
+                  · apply append_node_eq
+                    · apply compile_node_eq
+                    · apply compile_node_eq
+                    · apply compile_seq_node_disj
+                  · simp_all
+                · intro agg x h_mem_x ih
+                  apply And.intro
+                  · exact node_eq_mergeVars ih.left
+                  · simp only [mergeVarsAux]
+                    split
+                    next heq =>
+                      rename_i _ id ts2
+                      simp
+                      split
+                      next =>
+                        apply List.mem_map.mpr
+                        exists ⟨nid, .binOp op ts⟩
+                        apply And.intro
+                        · apply List.mem_filter.mpr
+                          apply And.intro ih.right
+                          simp only [Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not]
+                          intro h
+                          suffices h : (⟨nid, .binOp op ts⟩ : Node) = ⟨nid, .input ts2⟩ by aesop
+                          apply ih.left _ ih.right _ _ (by simp)
+                          have : nid = id := by have := List.find?_some heq; aesop
+                          rw [this]
+                          apply List.mem_of_find?_eq_some heq
+                        · aesop
+                      next => aesop
+                    next => aesop
+              · simp only [Node.updateReturn]
+            · simp only [Node.updateReturn]
+          · simp
+        have h_nid_ne_ret : nid ≠ (compileAux (compileAux maxId e1).2 e2).2 := by
+          suffices h : nid < (compileAux (compileAux maxId e1).2 e2).2 from Nat.ne_of_lt h
+          exact compile_id_lt_max _ h_mem
+        have h_fst_ne_ret : ¬(⟨nid, 0⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 0⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
+          simp only [⟨nid, 0⟩, not_or]
+          apply And.intro
+          · intro heq
+            apply Nat.not_le_of_lt
+            · exact (Port.mk.inj heq).left ▸ compileAux_ret_lt_newMax
+            · exact compileAux_maxId_le_id _ h_mem
+          · intro heq
+            have := (compileAux_ret_iff_output _ h_mem).mp
+            simp only [NodeOp.isOutput, Bool.false_eq_true, imp_false] at this
+            exact this (Port.mk.inj heq).left
+        have h_snd_ne_ret : ¬(⟨nid, 1⟩ = (compileAux maxId e1).1.ret ∨ ⟨nid, 1⟩ = (compileAux (compileAux maxId e1).2 e2).1.ret) := by
+          simp only [⟨nid, 0⟩, not_or]
+          apply And.intro
+          · intro heq
+            apply Nat.not_le_of_lt
+            · exact (Port.mk.inj heq).left ▸ compileAux_ret_lt_newMax
+            · exact compileAux_maxId_le_id _ h_mem
+          · intro heq
+            have := (compileAux_ret_iff_output _ h_mem).mp
+            simp only [NodeOp.isOutput, Bool.false_eq_true, imp_false] at this
+            exact this (Port.mk.inj heq).left
+        have h_fst_eq : MergedState e1 e2 maxId s1 ⟨nid, 0⟩ = s1 ⟨nid, 0⟩ := mergedState_eq h_nid_ne_ret h_fst_ne_ret
+        have h_snd_eq : MergedState e1 e2 maxId s1 ⟨nid, 1⟩ = s1 ⟨nid, 1⟩ := mergedState_eq h_nid_ne_ret h_snd_ne_ret
+        apply DFG.OpStep.subst
+        · apply DFG.OpStep.node ⟨nid, .binOp op newTs⟩
+          · simp
+          · exact h_mem'
+          · exact (.binOp (h_fst_eq ▸ h1) (h_snd_eq ▸ h2))
+        · simp_rw [h_fst_eq, h_snd_eq]
+          rw [MergedState_pop_assoc h_nid_ne_ret h_fst_ne_ret]
+          rw [MergedState_pop_assoc h_nid_ne_ret h_snd_ne_ret]
+          simp only [newTs, newRet]
+          rw [←List.comp_map]
+          have : ((fun t =>
+                      if t = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
+                      else t) ∘
+                    fun t => if t = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst else t) =
+                  (fun p =>
+                if p = (compileAux maxId e1).1.ret then (compileAux (compileAux maxId e1).2 e2).2.fst
+                else
+                  if p = (compileAux (compileAux maxId e1).2 e2).1.ret then (compileAux (compileAux maxId e1).2 e2).2.snd
+                  else p) := by
+            funext x
+            if x = (compileAux maxId e1).1.ret then
+              simp_all only [⟨nid, 0⟩, ne_eq, ⟨nid, 1⟩, mergeTwo, List.map_map, List.mem_filter,
+                List.mem_map, Function.comp_apply, and_true, not_or, mergedState, Port.mk.injEq,
+                zero_ne_one, and_self, or_self, ite_false, one_ne_zero, ite_true, ite_eq_right_iff]
+              intro h_ret_eq
+              have h_lt := @compileAux_ret_lt_newMax e2 (compileAux maxId e1).2
+              have h_eq := (Port.mk.inj h_ret_eq).left.symm
+              have := Nat.ne_of_lt h_lt
+              contradiction
+            else
+              aesop
+          rw [this]
+          apply @MergedState_pushAll_assoc e1 e2 maxId (s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) (op.denote ((s1 ⟨nid, 0⟩).head h1) ((s1 ⟨nid, 1⟩).head h2)) ts
+          have h_lt := @compile_maxId_lt e2 (compileAux maxId e1).2
+          have := compile_binop_consumer_lt_max h_mem
+          intro p h_mem
+          exact Nat.ne_of_lt (this p h_mem)
+
+  theorem op_multi_step_to_merged_right {e1 e2 : Exp} {maxId : Nid} {s1 s2 : State}
+    (step : (compileAux (compileAux maxId e1).2 e2).1.dfg.MultiOpStep s1 s2)
+    : (MergeTwo e1 e2 maxId).1.MultiOpStep (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) := by
+    induction step with
+    | refl => rfl
+    | tail hd tl ih => exact Relation.ReflTransGen.tail ih (op_step_to_merged_right tl)
 
   -- lemma op_step_irrelevant_state {dfg : DFG} (h_disj : s3 ⟨nid, 0⟩ = [] ∧ s3 ⟨nid, 1⟩ = [] ∧ ∀ p ∈ ps, s3 p = [])
   --   (h_mem : ⟨nid, .binOp op ps⟩ ∈ dfg)
@@ -1390,7 +1462,7 @@ namespace Compiler
   --         · apply Node.Step.subst (.binOp (by aesop) (by aesop))
   --           aesop
 
-  lemma compileAux_initial_state_id_range (e : Exp) (maxId : Nat)
+  lemma compileAux_initial_state_id_range {env : Env} (e : Exp) (maxId : Nat)
     : ∀ port, port.node < maxId ∨ port.node ≥ (compileAux maxId e).2 → (compileAux maxId e).1.initialState env port = [] := by
     intro port h_or
     apply h_or.elim
@@ -1416,13 +1488,8 @@ namespace Compiler
         · exact compile_vars_id_lt_newMax _ h_mem
         · exact h
 
-  lemma compileAux_plus_initial_state_decompose {e1 e2 : Exp}
-    : (compileAux maxId (e1.plus e2)).1.initialState env = (compileAux maxId e1).1.initialState env ⊕ (compileAux (compileAux maxId e1).2 e2).1.initialState env := by
-
-    sorry
-
   lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nat}
-    (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical maxId (compileAux maxId e).2 ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) := by
+    (eval : Eval env e v) : (compileAux maxId e).1.dfg.Canonical maxId (compileAux maxId e).2 compile_maxId_lt ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) := by
     cases e with
     | var s =>
       obtain ⟨h_val⟩ := eval
@@ -1473,11 +1540,9 @@ namespace Compiler
       obtain ⟨e1_s2, e1_t1, e1_t2⟩ := compileAux_canonical_trace eval1 (maxId := maxId)
       obtain ⟨e2_s2, e2_t1, e2_t2⟩ := compileAux_canonical_trace eval2 (maxId := (compileAux maxId e1).2)
       apply DFG.Canonical.mk (e1_s2 ⊕ e2_s2) (low := maxId) (high := (compileAux (compileAux maxId e1).2 e2).2 + 2)
-      · trans (e1_s2 ⊕ ((compileAux (compileAux maxId e1).2 e2).1.initialState env))
-        ·
-          sorry
-        · sorry
       · sorry
+      ·
+        sorry
 
   theorem compile_value_correct {e : Exp} {env : Env} {v : Ty} (eval : Eval env e v)
     : (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
