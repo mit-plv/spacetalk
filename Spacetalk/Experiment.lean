@@ -1196,9 +1196,34 @@ namespace Compiler
                           exact compile_plus_port_lt_maxId_ret_false h_port_node_id h
                       next => rfl
                 · intro h_port_node_id
-
-                  sorry
-              · sorry
+                  simp only [mergedState]
+                  split
+                  next h =>
+                    have := (Port.mk.inj h).left
+                    omega
+                  next =>
+                    split
+                    next h =>
+                      have := (Port.mk.inj h).left
+                      omega
+                    next =>
+                      split
+                      next h =>
+                        apply Or.elim h
+                        · intro h
+                          suffices port.node < (compileAux (compileAux maxId e1).2 e2).2 by omega
+                          trans (compileAux maxId e1).2
+                          · have := @compileAux_ret_lt_newMax e1 maxId
+                            rw [←(Port.mk.inj h).left] at this
+                            exact this
+                          · exact compile_maxId_lt
+                        · intro h
+                          suffices port.node < (compileAux (compileAux maxId e1).2 e2).2 by omega
+                          have := @compileAux_ret_lt_newMax e2 (compileAux maxId e1).2
+                          rw [←(Port.mk.inj h).left] at this
+                          exact this
+                      next => rfl
+              · simp
           · exact (.binOp (h_fst_eq ▸ h1) (h_snd_eq ▸ h2))
         · simp_rw [h_fst_eq, h_snd_eq]
           rw [MergedState_pop_assoc h_nid_ne_ret h_fst_ne_ret]
