@@ -173,7 +173,7 @@ namespace Df
       rw [State.push_nil_union_commutes (this _ h_mem_a)]
       aesop
 
-  theorem Node.Step.irrelevant_state (node : Node) (step : node.Step s1 s2) (h1 : s1.Disjoint s3) (h2 : s2.Disjoint s3) : node.Step (s1 ⊕ s3) (s2 ⊕ s3) := by
+  theorem Node.Step.disjoint_union (node : Node) (step : node.Step s1 s2) (h1 : s1.Disjoint s3) (h2 : s2.Disjoint s3) : node.Step (s1 ⊕ s3) (s2 ⊕ s3) := by
     cases step with
     | @input _ nid ts h =>
       rw [State.pushAll_union_disjoint_commute h2]
@@ -181,7 +181,19 @@ namespace Df
       have : s1 ⟨nid, 0⟩ = (s1 ⊕ s3) ⟨nid, 0⟩ := by aesop
       simp_rw [this]
       apply Node.Step.input
-    | binOp => sorry
+    | @binOp _ nid _ _ h_ne1 h_ne2 =>
+      rw [State.pushAll_union_disjoint_commute h2]
+      have h_pop_disj : (s1 ↤ ⟨nid, 0⟩).Disjoint s3 := by aesop
+      have h_pop_ne_nil : (s1 ↤ ⟨nid, 0⟩) ⟨nid, 1⟩ ≠ [] := by aesop
+      rw [State.pop_union_disjoint_commute h_pop_disj h_pop_ne_nil]
+      rw [State.pop_union_disjoint_commute h1 h_ne1]
+      have : s1 ⟨nid, 0⟩ = (s1 ⊕ s3) ⟨nid, 0⟩ := by aesop
+      simp_rw [this]
+      have : s1 ⟨nid, 1⟩ = (s1 ⊕ s3) ⟨nid, 1⟩ := by
+        simp only [State.union, List.self_eq_append_right]
+        exact (h1 _).left h_ne2
+      simp_rw [this]
+      apply Node.Step.binOp
 
   inductive DFG.Step : DFG → State → State → Prop
     | node : (node : Node) → node ∈ dfg → node.Step s1 s2 → DFG.Step dfg s1 s2
@@ -226,10 +238,6 @@ namespace Df
       λ s => ∀ port, port.node < low ∨ port.node ≥ high → s port = []
     ⟩
 
-  -- theorem DFG.PredicatedMultiStep.disjoint_state_irrelevant {dfg : DFG}
-  --   (step : dfg.PredicatedMultiStep P s1 s2)
-
-
   theorem DFG.PredicatedMultiStep.merge_disjoint_nid_ranges {dfg : DFG}
     (step1 : dfg.PredicatedMultiStep (NidRange low1 high1) s1 s2)
     (step2 : dfg.PredicatedMultiStep (NidRange low2 high2) s3 s4)
@@ -238,8 +246,7 @@ namespace Df
     (h_le : high1 ≤ low2)
     : dfg.PredicatedMultiStep (NidRange low1 high2) (s1 ⊕ s3) (s2 ⊕ s4) := by
     trans (s2 ⊕ s3)
-    ·
-      generalize h_range : NidRange low1 high1 = range at *
+    · generalize h_range : NidRange low1 high1 = range at *
       induction step1 with
       | refl h =>
         apply DFG.PredicatedMultiStep.refl
@@ -257,7 +264,7 @@ namespace Df
         simp_rw [←h_range] at *
         have ih := ih trivial
         apply DFG.PredicatedMultiStep.head node h_mem _ trivial _ _ ih
-        · apply Node.Step.irrelevant_state node hd
+        · apply Node.Step.disjoint_union node hd
           · intro p
             apply And.intro
             · intro h
