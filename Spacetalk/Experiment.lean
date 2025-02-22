@@ -5,6 +5,33 @@ import Mathlib.Data.List.Sublists
 
 open Mathlib
 
+theorem List.foldl_induction {f : α → β → α} (init : α) (l : List β)
+  (P : α → Prop)
+  (h : P init)
+  (ih : ∀ agg, ∀ x ∈ l, P agg → P (f agg x))
+  : P (l.foldl f init) :=
+  match l with
+  | [] => h
+  | hd :: tl =>
+    List.foldl_induction (f init hd) tl P (ih init hd (by simp_all) h)
+      (λ agg x h_mem h => ih agg x (by simp_all) h)
+
+theorem List.foldl_dual_induction {f₁ : α₁ → β₁ → α₁} {f₂ : α₂ → β₂ → α₂}
+  (init₁ : α₁) (init₂ : α₂) (l₁ : List β₁) (l₂ : List β₂) (P : α₁ → α₂ → Prop)
+  (h_length : l₁.length = l₂.length) (h : P init₁ init₂)
+  (ih : ∀ agg₁, ∀ agg₂, ∀ x ∈ l₁.zip l₂, P agg₁ agg₂ → P (f₁ agg₁ x.1) (f₂ agg₂ x.2))
+  : P (l₁.foldl f₁ init₁) (l₂.foldl f₂ init₂) :=
+  match l₁, l₂ with
+  | [], [] => h
+  | hd₁ :: tl₁, hd₂ :: tl₂ => by
+    apply List.foldl_dual_induction (f₁ init₁ hd₁) (f₂ init₂ hd₂) tl₁ tl₂
+    · simp_all
+    · exact ih init₁ init₂ (hd₁, hd₂) (by simp) h
+    · intro agg₁ agg₂ x h_mem ih'
+      apply ih
+      · simp_all
+      · exact ih'
+
 abbrev Ty := Nat
 
 namespace Arith
@@ -67,7 +94,7 @@ namespace Df
 
   abbrev DFG := List Node
 
-  abbrev DFG.NodeMem (dfg : DFG) := {node : Node // node ∈ dfg}
+  -- abbrev DFG.NodeMem (dfg : DFG) := {node : Node // node ∈ dfg}
 
   abbrev State := Port → List Ty
 
@@ -103,92 +130,197 @@ namespace Df
   infixl:100 " ↦↦ " => State.pushAll
   infixl:100 " ⊕ " => State.union
 
-  theorem State.irrelevant_pop {s1 s2 : State} {p1 p2 : Port} (h_ne : p1 ≠ p2) (h_eq : s1 p1 = s2 p1) : s1 p1 = (s2 ↤ p2) p1 := by
-    aesop
-
-  theorem State.irrelevant_push {s1 s2 : State} {p1 p2 : Port} (h_ne : p1 ≠ p2) (h_eq : s1 p1 = s2 p1) : s1 p1 = (s2 ↦ ⟨val, p2⟩) p1 := by
-    aesop
-
   inductive Node.Step : Node → State → State → Prop
     | input : (h : s ⟨nid, 0⟩ ≠ [])
       → Node.Step ⟨nid, .input ts⟩ s (s ↤ ⟨nid, 0⟩ ↦↦ ⟨(s ⟨nid, 0⟩).head h, ts⟩)
     | binOp : {op : BinOp} → (h1 : s ⟨nid, 0⟩ ≠ []) → (h2 : s ⟨nid, 1⟩ ≠ [])
       → Node.Step ⟨nid, .binOp op ts⟩ s (s ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩ ↦↦ ⟨op.denote ((s ⟨nid, 0⟩).head h1) ((s ⟨nid, 1⟩).head h2), ts⟩)
 
+  theorem State.pop_union_disjoint_commute : s1.Disjoint s2 → s1 p ≠ [] → ((s1 ↤ p) ⊕ s2) = ((s1 ⊕ s2) ↤ p) := by
+    aesop
+
+  theorem State.push_nil_union_commutes : s2 p = [] → ((s1 ↦ ⟨val, p⟩) ⊕ s2) = (s1 ⊕ s2) ↦ ⟨val, p⟩ := by
+    aesop
+
+  theorem State.pushAll_cons {s : State} : s ↦↦ ⟨x, hd :: tl⟩ = (s ↦ ⟨x, hd⟩) ↦↦ ⟨x, tl⟩ := by
+    aesop
+
+  theorem State.pushAll_ne {s : State} (h : p ∈ ps) : (s ↦↦ ⟨x, ps⟩) p ≠ [] := by
+    cases ps with
+    | nil => contradiction
+    | cons hd tl =>
+      apply (List.mem_cons.mp h).elim
+      · intro h
+        apply List.foldl_induction (s ↦ { val := x, tag := hd }) tl (λ x => x p ≠ [])
+        <;> aesop
+      · intro h
+        rw [State.pushAll_cons]
+        exact State.pushAll_ne h
+
+  theorem State.pushAll_union_disjoint_commute (h_disj : (s1 ↦↦ ts).Disjoint s2) : ((s1 ↦↦ ts) ⊕ s2) = ((s1 ⊕ s2) ↦↦ ts) := by
+    obtain ⟨val, tags⟩ := ts
+    have : ∀ p ∈ tags, s2 p = [] := by
+      intro p h_mem
+      have : (s1 ↦ ⟨val, p⟩) p ≠ [] := by aesop
+      apply (h_disj p).left
+      exact State.pushAll_ne h_mem
+    apply List.foldl_dual_induction _ _ _ _ (λ x1 x2 => (x1 ⊕ s2) = x2) rfl rfl
+    · intro agg1 agg2 x h_mem ih
+      simp only [List.zip, List.zipWith_same, List.mem_map] at h_mem
+      obtain ⟨a, ⟨h_mem_a, h_eq_a⟩⟩ := h_mem
+      rw [←h_eq_a]
+      simp only
+      rw [State.push_nil_union_commutes (this _ h_mem_a)]
+      aesop
+
+  theorem Node.Step.irrelevant_state (node : Node) (step : node.Step s1 s2) (h1 : s1.Disjoint s3) (h2 : s2.Disjoint s3) : node.Step (s1 ⊕ s3) (s2 ⊕ s3) := by
+    cases step with
+    | @input _ nid ts h =>
+      rw [State.pushAll_union_disjoint_commute h2]
+      rw [State.pop_union_disjoint_commute h1 h]
+      have : s1 ⟨nid, 0⟩ = (s1 ⊕ s3) ⟨nid, 0⟩ := by aesop
+      simp_rw [this]
+      apply Node.Step.input
+    | binOp => sorry
+
+  inductive DFG.Step : DFG → State → State → Prop
+    | node : (node : Node) → node ∈ dfg → node.Step s1 s2 → DFG.Step dfg s1 s2
+
+  abbrev DFG.MultiStep (dfg : DFG) : State → State → Prop :=
+    Relation.ReflTransGen dfg.Step
+
+  abbrev NodePredicate := Node → Prop
+
+  abbrev StatePredicate := State → Prop
+
+  structure Predicate where
+    node : NodePredicate
+    state : StatePredicate
+
+  inductive DFG.PredicatedMultiStep : DFG → Predicate → State → State → Prop
+    | refl : P.state s → DFG.PredicatedMultiStep dfg P s s
+    | head : (node : Node) → node ∈ dfg
+              → node.Step s1 s2
+              → P.node node → P.state s1 → P.state s2
+              → DFG.PredicatedMultiStep dfg P s2 s3
+              → DFG.PredicatedMultiStep dfg P s1 s3
+
+  theorem DFG.PredicatedMultiStep.to_MultiStep (step : DFG.PredicatedMultiStep dfg P s1 s2) : DFG.MultiStep dfg s1 s2 := by
+    induction step with
+    | refl => rfl
+    | head node h_mem hd _ _ _ _ ih =>
+      exact Relation.ReflTransGen.head (.node node h_mem hd) ih
+
+  @[trans]
+  theorem DFG.PredicatedMultiStep.trans {dfg : DFG} (step1 : dfg.PredicatedMultiStep P s1 s2) (step2 : dfg.PredicatedMultiStep P s2 s3)
+    : dfg.PredicatedMultiStep P s1 s3 := by
+    induction step1 with
+    | refl => exact step2
+    | head node h_mem hd h_node h_s1 h_s2 _ ih =>
+      exact .head node h_mem hd h_node h_s1 h_s2 (ih step2)
+
+  @[simp]
+  def NidRange (low high : Nat) : Predicate :=
+    ⟨
+      λ _ => True,
+      λ s => ∀ port, port.node < low ∨ port.node ≥ high → s port = []
+    ⟩
+
+  -- theorem DFG.PredicatedMultiStep.disjoint_state_irrelevant {dfg : DFG}
+  --   (step : dfg.PredicatedMultiStep P s1 s2)
+
+
+  theorem DFG.PredicatedMultiStep.merge_disjoint_nid_ranges {dfg : DFG}
+    (step1 : dfg.PredicatedMultiStep (NidRange low1 high1) s1 s2)
+    (step2 : dfg.PredicatedMultiStep (NidRange low2 high2) s3 s4)
+    (h_lt1 : low1 < high1)
+    (h_lt2 : low2 < high2)
+    (h_le : high1 ≤ low2)
+    : dfg.PredicatedMultiStep (NidRange low1 high2) (s1 ⊕ s3) (s2 ⊕ s4) := by
+    trans (s2 ⊕ s3)
+    ·
+      generalize h_range : NidRange low1 high1 = range at *
+      induction step1 with
+      | refl h =>
+        apply DFG.PredicatedMultiStep.refl
+        intro port h_nid
+        simp only [State.union, List.append_eq_nil]
+        apply And.intro
+        · apply h_nid.elim
+          <;> (intro; rw [←h_range] at h; apply h; omega)
+        · apply h_nid.elim
+          <;> (intro;
+               have h : (NidRange low2 high2).state s3 := by cases step2 <;> assumption;
+               apply h;
+               omega)
+      | head node h_mem hd _ h_s1 h_s2 _ ih =>
+        simp_rw [←h_range] at *
+        have ih := ih trivial
+        apply DFG.PredicatedMultiStep.head node h_mem _ trivial _ _ ih
+        · apply Node.Step.irrelevant_state node hd
+          · intro p
+            apply And.intro
+            · intro h
+              have : (NidRange low2 high2).state s3 := by cases step2 <;> assumption
+              apply this
+              by_contra h_p
+              rename_i s1 _ _ _ _ _ _
+              suffices s1 p = [] by contradiction
+              apply h_s1
+              omega
+            · intro h
+              apply h_s1
+              by_contra h_p
+              suffices s3 p = [] by contradiction
+              have : (NidRange low2 high2).state s3 := by cases step2 <;> assumption
+              apply this
+              omega
+          · intro p
+            apply And.intro
+            · intro h
+              have : (NidRange low2 high2).state s3 := by cases step2 <;> assumption
+              apply this
+              by_contra h_p
+              rename_i _ s2 _ _ _ _ _
+              suffices s2 p = [] by contradiction
+              apply h_s2
+              omega
+            · intro h
+              apply h_s2
+              by_contra h_p
+              suffices s3 p = [] by contradiction
+              have : (NidRange low2 high2).state s3 := by cases step2 <;> assumption
+              apply this
+              omega
+        · intro port h
+          simp only [State.union, List.append_eq_nil]
+          apply And.intro
+          · apply h_s1
+            omega
+          · have : (NidRange low2 high2).state s3 := by cases step2 <;> assumption
+            apply this
+            omega
+        · intro port h
+          simp only [State.union, List.append_eq_nil]
+          apply And.intro
+          · apply h_s2
+            omega
+          · have : (NidRange low2 high2).state s3 := by cases step2 <;> assumption
+            apply this
+            omega
+    · sorry
+
+  theorem State.irrelevant_pop {s1 s2 : State} {p1 p2 : Port} (h_ne : p1 ≠ p2) (h_eq : s1 p1 = s2 p1) : s1 p1 = (s2 ↤ p2) p1 := by
+    aesop
+
+  theorem State.irrelevant_push {s1 s2 : State} {p1 p2 : Port} (h_ne : p1 ≠ p2) (h_eq : s1 p1 = s2 p1) : s1 p1 = (s2 ↦ ⟨val, p2⟩) p1 := by
+    aesop
+
   theorem Node.Step.subst_right {node : Node} {s1 s2 s3 : State}
     (step : node.Step s1 s2) (heq : s2 = s3)
     : node.Step s1 s3 :=
     heq ▸ step
 
-  @[simp]
-  def Predicate := Node → State → State → Prop
-
-  inductive PredicatedStep : Predicate → State → State → Prop
-    | node : (node : Node) → P node s1 s2 → node.Step s1 s2 → PredicatedStep P s1 s2
-
-  @[simp]
-  def DFGMem (dfg : DFG) : Predicate :=
-    λ node _ _ => node ∈ dfg
-
-  @[simp]
-  def NidContained (low high : Nat) (_ : low < high) : Predicate :=
-    λ _ s1 s2 =>
-      ∀ port, port.node < low ∨ port.node ≥ high → s1 port = s2 port
-
-  @[simp]
-  def NidContainedWithExtra (low high : Nat) (extra : Port) (_ : low < high) : Predicate :=
-    λ _ s1 s2 =>
-      ∀ port, (port.node < low ∨ port.node ≥ high) ∧ port ≠ extra → s1 port = s2 port
-
-  @[simp]
-  def Predicate.isInput : Predicate :=
-    λ node _ _ => node.isInput = true
-
-  @[simp]
-  def Predicate.isOp : Predicate :=
-    λ node _ _ => node.isOp = true
-
-  @[simp]
-  def Predicate.and (p1 p2 : Predicate) : Predicate :=
-    λ node s1 s2 => p1 node s1 s2 ∧ p2 node s1 s2
-
-  infixr:50 " ∧ " => Predicate.and
-
-  @[simp]
-  def DFG.MultiStep (dfg : DFG) := Relation.ReflTransGen (PredicatedStep (DFGMem dfg))
-
-  @[refl]
-  theorem DFG.MultiStep.refl' {dfg : DFG} : dfg.MultiStep s s :=
-    Relation.ReflTransGen.refl
-
-  @[trans]
-  theorem DFG.MultiStep.trans' (dfg : DFG) (s1 : dfg.MultiStep a b) (s2 : dfg.MultiStep b c) : dfg.MultiStep a c :=
-    Relation.ReflTransGen.trans s1 s2
-
-  @[simp]
-  def DFG.MultiStepContained (dfg : DFG) (low high : Nat) (h : low < high) :=
-    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high h))
-
-  @[simp]
-  def DFG.MultiStepContainedInput (dfg : DFG) (low high : Nat) (h : low < high) :=
-    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high h ∧ Predicate.isInput))
-
-  @[refl]
-  def DFG.MultiStepContainedInput.refl' {dfg : DFG} {low high : Nat} {h : low < high} : dfg.MultiStepContainedInput low high h s s :=
-    .refl
-
-  @[trans]
-  def DFG.MultiStepContainedInput.trans' {dfg : DFG} {low high : Nat} {h : low < high} :
-    dfg.MultiStepContainedInput low high h s1 s2 → dfg.MultiStepContainedInput low high h s2 s3 → dfg.MultiStepContainedInput low high h s1 s3 :=
-    .trans
-
-  @[simp]
-  def DFG.MultiStepContainedOp (dfg : DFG) (low high : Nat) (h : low < high) :=
-    Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContained low high h ∧ Predicate.isOp))
-
-  @[refl]
-  theorem DFG.MultiStepContainedOp.refl' {dfg : DFG} {low high : Nat} {h : low < high} : dfg.MultiStepContainedOp low high h s s :=
-    Relation.ReflTransGen.refl
 
   inductive DFG.Canonical : DFG → (low : Nat) → (high : Nat) → (h : low < high) → State → State → Prop
     | mk : (s2 : State)
@@ -213,64 +345,6 @@ namespace Df
     trans s2
     · apply predicate_transfer (λ _ _ _ h => h.left) t1
     · apply predicate_transfer (λ _ _ _ h => h.left) t2
-
-  -- inductive DFG.Step : DFG → State → State → Prop
-  --   | node : (node : Node) → node ∈ dfg → node.Step s1 s2 → DFG.Step dfg s1 s2
-
-  -- inductive DFG.InputStep : DFG → State → State → Prop
-  --   | node : (node : Node) → node.isInput = true → node ∈ dfg → node.Step s1 s2 → DFG.InputStep dfg s1 s2
-
-  -- inductive DFG.OpStep : DFG → State → State → Prop
-  --   | node : (node : Node) → node.isOp = true → node ∈ dfg → node.Step s1 s2 → DFG.OpStep dfg s1 s2
-
-  -- def DFG.InputStep.toStep {dfg : DFG} : dfg.InputStep s1 s2 → dfg.Step s1 s2
-  --   | .node n _ h_mem step => .node n h_mem step
-
-  -- def DFG.OpStep.toStep {dfg : DFG} : dfg.OpStep s1 s2 → dfg.Step s1 s2
-  --   | .node n _ h_mem step => .node n h_mem step
-
-  -- abbrev DFG.MultiInputStep (dfg : DFG) := Relation.ReflTransGen dfg.InputStep
-
-  -- abbrev DFG.MultiOpStep (dfg : DFG) := Relation.ReflTransGen dfg.OpStep
-
-  -- theorem DFG.MultiInputStep.to_MultiStep {dfg : DFG} (h : dfg.MultiInputStep s1 s2) : dfg.MultiStep s1 s2 := by
-  --   induction h with
-  --   | refl => rfl
-  --   | tail hd tl ih => exact Relation.ReflTransGen.tail ih tl.toStep
-
-  -- theorem DFG.MultiOpStep.to_MultiStep {dfg : DFG} (h : dfg.MultiOpStep s1 s2) : dfg.MultiStep s1 s2 := by
-  --   induction h with
-  --   | refl => rfl
-  --   | tail hd tl ih => apply Relation.ReflTransGen.tail ih tl.toStep
-
-  -- theorem Node.Step.subst {node : Node} {s1 s2 s3 : State}
-  --   (ns : node.Step s1 s2) (h : s2 = s3) : node.Step s1 s3 :=
-  --   h ▸ ns
-
-  -- inductive DFG.Canonical : DFG → State → State → Prop
-  --   | mk : (s2 : State)
-  --     → dfg.MultiInputStep s1 s2
-  --     → dfg.MultiOpStep s2 s3
-  --     → DFG.Canonical dfg s1 s3
-
-  -- theorem DFG.Canonical.to_steps {dfg : DFG} {s1 s2 : State} : dfg.Canonical s1 s2 → dfg.MultiStep s1 s2
-  -- | .mk _ t1 t2 => .trans t1.to_MultiStep t2.to_MultiStep
-
-  -- theorem DFG.Step.subst {dfg : DFG} {s1 s2 s3 : State}
-  --   (step : dfg.Step s1 s2) (h : s2 = s3) : dfg.Step s1 s3 :=
-  --   h ▸ step
-
-  -- theorem DFG.OpStep.subst {dfg : DFG} {s1 s2 s3 : State}
-  --   (step : dfg.OpStep s1 s2) (h : s2 = s3) : dfg.OpStep s1 s3 :=
-  --   h ▸ step
-
-  -- theorem DFG.OpStep.subst_both {dfg : DFG} {s1 s2 s3 s4 : State}
-  --   (step : dfg.OpStep s1 s2) (h1 : s1 = s3) (h2 : s2 = s4) : dfg.OpStep s3 s4 :=
-  --   h1 ▸ h2 ▸ step
-
-  -- theorem DFG.MultiOpStep.subst {dfg : DFG} {s1 s2 s3 : State}
-  --   (step : dfg.MultiOpStep s1 s2) (h : s2 = s3) : dfg.MultiOpStep s1 s3 :=
-  --   h ▸ step
 
   theorem DFG.MultiStep.subst_right {dfg : DFG} {s1 s2 s3 : State}
     (node : Node) (h_mem : node ∈ dfg) (step : node.Step s1 s2) (heq : s2 = s3)
@@ -368,33 +442,6 @@ namespace Compiler
   @[simp]
   def VarMap.initialState (vars : VarMap) (env : Env) : State :=
     vars.foldl (λ s (name, port) => s ↦ ⟨env name, port⟩) .empty
-
-  theorem List.foldl_induction {f : α → β → α} (init : α) (l : List β)
-    (P : α → Prop)
-    (h : P init)
-    (ih : ∀ agg, ∀ x ∈ l, P agg → P (f agg x))
-    : P (l.foldl f init) :=
-    match l with
-    | [] => h
-    | hd :: tl =>
-      List.foldl_induction (f init hd) tl P (ih init hd (by simp_all) h)
-        (λ agg x h_mem h => ih agg x (by simp_all) h)
-
-  theorem List.foldl_dual_induction {f₁ : α₁ → β₁ → α₁} {f₂ : α₂ → β₂ → α₂}
-    (init₁ : α₁) (init₂ : α₂) (l₁ : List β₁) (l₂ : List β₂) (P : α₁ → α₂ → Prop)
-    (h_length : l₁.length = l₂.length) (h : P init₁ init₂)
-    (ih : ∀ agg₁, ∀ agg₂, ∀ x ∈ l₁.zip l₂, P agg₁ agg₂ → P (f₁ agg₁ x.1) (f₂ agg₂ x.2))
-    : P (l₁.foldl f₁ init₁) (l₂.foldl f₂ init₂) :=
-    match l₁, l₂ with
-    | [], [] => h
-    | hd₁ :: tl₁, hd₂ :: tl₂ => by
-      apply List.foldl_dual_induction (f₁ init₁ hd₁) (f₂ init₂ hd₂) tl₁ tl₂
-      · simp_all
-      · exact ih init₁ init₂ (hd₁, hd₂) (by simp) h
-      · intro agg₁ agg₂ x h_mem ih'
-        apply ih
-        · simp_all
-        · exact ih'
 
   lemma ret_not_in_initial_state {ret : Port} {vars : VarMap} {env : Env}
     (h : ∀ var ∈ vars, ret ≠ var.2) : (vars.initialState env) ret = [] := by
@@ -1311,50 +1358,52 @@ namespace Compiler
                         exact compile_plus_port_lt_maxId_ret_false h_port_node_id h
                     next h =>
                       simp only [State.pushAll]
-                      apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs (P := λ x => (s1 port = x port))
-                      · apply State.irrelevant_pop
-                        · intro h
-                          suffices h_le : maxId ≤ nid by
-                            have h_eq := (Port.mk.inj h).left
-                            have h_le : port.node < nid := Nat.lt_of_lt_of_le h_port_node_id h_le
-                            simp_all
-                          exact compileAux_maxId_le_id _ h_mem
-                        · apply State.irrelevant_pop
-                          · intro h
-                            suffices h_le : maxId ≤ nid by
-                              have h_eq := (Port.mk.inj h).left
-                              have h_le : port.node < nid := Nat.lt_of_lt_of_le h_port_node_id h_le
-                              simp_all
-                            exact compileAux_maxId_le_id _ h_mem
-                          · aesop
+                      apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs (P := λ x => (s1 port = [] ∧ x port = []))
+                      · sorry
+                        -- apply State.irrelevant_pop
+                        -- · intro h
+                        --   suffices h_le : maxId ≤ nid by
+                        --     have h_eq := (Port.mk.inj h).left
+                        --     have h_le : port.node < nid := Nat.lt_of_lt_of_le h_port_node_id h_le
+                        --     simp_all
+                        --   exact compileAux_maxId_le_id _ h_mem
+                        -- · apply State.irrelevant_pop
+                        --   · intro h
+                        --     suffices h_le : maxId ≤ nid by
+                        --       have h_eq := (Port.mk.inj h).left
+                        --       have h_le : port.node < nid := Nat.lt_of_lt_of_le h_port_node_id h_le
+                        --       simp_all
+                        --     exact compileAux_maxId_le_id _ h_mem
+                        --   · aesop
                       · intro agg x h_mem ih
-                        apply State.irrelevant_push _ ih
-                        apply Port.node_ne
-                        simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
-                          newRet] at h_mem
-                        obtain ⟨a, ⟨h_mem_a, h_x⟩⟩ := h_mem
-                        rw [←h_x]
-                        split
-                        next =>
-                          split
-                          <;> (apply Nat.ne_of_lt
-                               trans maxId
-                               · exact h_port_node_id
-                               · trans (compileAux maxId e1).2
-                                 <;> exact compile_maxId_lt)
-                        next =>
-                          split
-                          next =>
-                            apply Nat.ne_of_lt
-                            trans maxId
-                            · exact h_port_node_id
-                            · trans (compileAux maxId e1).2
-                              <;> exact compile_maxId_lt
-                          next =>
-                            apply Nat.ne_of_lt
-                            apply Nat.lt_of_lt_of_le
-                            · exact h_port_node_id
-                            · exact compile_binop_maxId_le_consumer h_mem a h_mem_a
+                        sorry
+                        -- apply State.irrelevant_push _ ih
+                        -- apply Port.node_ne
+                        -- simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
+                        --   newRet] at h_mem
+                        -- obtain ⟨a, ⟨h_mem_a, h_x⟩⟩ := h_mem
+                        -- rw [←h_x]
+                        -- split
+                        -- next =>
+                        --   split
+                        --   <;> (apply Nat.ne_of_lt
+                        --        trans maxId
+                        --        · exact h_port_node_id
+                        --        · trans (compileAux maxId e1).2
+                        --          <;> exact compile_maxId_lt)
+                        -- next =>
+                        --   split
+                        --   next =>
+                        --     apply Nat.ne_of_lt
+                        --     trans maxId
+                        --     · exact h_port_node_id
+                        --     · trans (compileAux maxId e1).2
+                        --       <;> exact compile_maxId_lt
+                        --   next =>
+                        --     apply Nat.ne_of_lt
+                        --     apply Nat.lt_of_lt_of_le
+                        --     · exact h_port_node_id
+                        --     · exact compile_binop_maxId_le_consumer h_mem a h_mem_a
               · intro h_port_node_id
                 simp only [mergedState]
                 split
@@ -1367,51 +1416,52 @@ namespace Compiler
                 next =>
                   split
                   next h =>
-                    apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs
-                      (λ x => s1 (compileAux (compileAux maxId e1).2 e2).1.ret = x port)
-                    · simp [h, h_nid_ne_ret.symm]
-                    · intro agg x h_mem_x ih
-                      split
-                      next h =>
-                        have := (Port.mk.inj h).left
-                        contradiction
-                      next =>
-                        simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
-                          newRet] at h_mem_x
-                        obtain ⟨a, ⟨h_mem_a, h_a⟩⟩ := h_mem_x
-                        split at h_a
-                        next =>
-                          split at h_a
-                          next h =>
-                            simp
-                            have := (Port.mk.inj h).left
-                            suffices (compileAux (compileAux maxId e1).2 e2).2 ≠ (compileAux (compileAux maxId e1).2 e2).1.ret.node by contradiction
-                            symm
-                            exact Nat.ne_of_lt compileAux_ret_lt_newMax
-                          next =>
-                            have : port ≠ x := by simp_all
-                            simp only [State.push, this, ↓reduceIte, newRet, newTs]
-                            exact ih
-                        next =>
-                          split at h_a
-                          next h =>
-                            suffices a ≠ (compileAux (compileAux maxId e1).2 e2).1.ret by contradiction
-                            apply Port.node_ne
-                            apply Nat.ne_of_lt
-                            trans (compileAux maxId e1).2
-                            · exact compile_binop_consumer_lt_max h_mem a h_mem_a
-                            · exact compileAux_max_lt_ret
-                          next =>
-                            suffices h_ne : port ≠ x by
-                              simp only [State.push, h_ne, ↓reduceIte, newRet, newTs]
-                              exact ih
-                            apply Port.node_ne
-                            rw [h, ←h_a]
-                            symm
-                            apply Nat.ne_of_lt
-                            trans (compileAux maxId e1).2
-                            · exact compile_binop_consumer_lt_max h_mem a h_mem_a
-                            · exact compile_maxId_lt
+                    sorry
+                    -- apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs
+                    --   (λ x => s1 (compileAux (compileAux maxId e1).2 e2).1.ret = x port)
+                    -- · simp [h, h_nid_ne_ret.symm]
+                    -- · intro agg x h_mem_x ih
+                    --   split
+                    --   next h =>
+                    --     have := (Port.mk.inj h).left
+                    --     contradiction
+                    --   next =>
+                    --     simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
+                    --       newRet] at h_mem_x
+                    --     obtain ⟨a, ⟨h_mem_a, h_a⟩⟩ := h_mem_x
+                    --     split at h_a
+                    --     next =>
+                    --       split at h_a
+                    --       next h =>
+                    --         simp
+                    --         have := (Port.mk.inj h).left
+                    --         suffices (compileAux (compileAux maxId e1).2 e2).2 ≠ (compileAux (compileAux maxId e1).2 e2).1.ret.node by contradiction
+                    --         symm
+                    --         exact Nat.ne_of_lt compileAux_ret_lt_newMax
+                    --       next =>
+                    --         have : port ≠ x := by simp_all
+                    --         simp only [State.push, this, ↓reduceIte, newRet, newTs]
+                    --         exact ih
+                    --     next =>
+                    --       split at h_a
+                    --       next h =>
+                    --         suffices a ≠ (compileAux (compileAux maxId e1).2 e2).1.ret by contradiction
+                    --         apply Port.node_ne
+                    --         apply Nat.ne_of_lt
+                    --         trans (compileAux maxId e1).2
+                    --         · exact compile_binop_consumer_lt_max h_mem a h_mem_a
+                    --         · exact compileAux_max_lt_ret
+                    --       next =>
+                    --         suffices h_ne : port ≠ x by
+                    --           simp only [State.push, h_ne, ↓reduceIte, newRet, newTs]
+                    --           exact ih
+                    --         apply Port.node_ne
+                    --         rw [h, ←h_a]
+                    --         symm
+                    --         apply Nat.ne_of_lt
+                    --         trans (compileAux maxId e1).2
+                    --         · exact compile_binop_consumer_lt_max h_mem a h_mem_a
+                    --         · exact compile_maxId_lt
                   next =>
                     split
                     next h =>
@@ -1421,68 +1471,71 @@ namespace Compiler
                         rw [←(Port.mk.inj h).left] at this
                         omega
                       · intro h
-                        apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs
-                          (λ x => [] = x port)
-                        · simp_all
-                        · intro agg x h_mem_x ih
-                          suffices h_ne : port ≠ x by
-                            simp only [State.push, h_ne, ↓reduceIte, List.nil_eq, newRet, newTs]
-                            exact ih.symm
-                          simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
-                            newRet] at h_mem_x
-                          obtain ⟨a, ⟨h_mem_a, h_a⟩⟩ := h_mem_x
-                          split at h_a
-                          next =>
-                            split at h_a
-                            <;> (apply Port.node_ne; rw [h, ←h_a]; exact Nat.ne_of_lt compileAux_ret_lt_newMax)
-                          next =>
-                            split at h_a
-                            next =>
-                              apply Port.node_ne
-                              rw [h, ←h_a]
-                              exact Nat.ne_of_lt compileAux_ret_lt_newMax
-                            next =>
-                              rw [←h_a, h]
-                              symm
-                              apply Port.node_ne
-                              apply Nat.ne_of_lt
-                              trans (compileAux maxId e1).2
-                              · exact compile_binop_consumer_lt_max h_mem a h_mem_a
-                              · exact compileAux_max_lt_ret
+                        sorry
+                        -- apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs
+                        --   (λ x => [] = x port)
+                        -- · simp_all
+                        -- · intro agg x h_mem_x ih
+                        --   suffices h_ne : port ≠ x by
+                        --     simp only [State.push, h_ne, ↓reduceIte, List.nil_eq, newRet, newTs]
+                        --     exact ih.symm
+                        --   simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
+                        --     newRet] at h_mem_x
+                        --   obtain ⟨a, ⟨h_mem_a, h_a⟩⟩ := h_mem_x
+                        --   split at h_a
+                        --   next =>
+                        --     split at h_a
+                        --     <;> (apply Port.node_ne; rw [h, ←h_a]; exact Nat.ne_of_lt compileAux_ret_lt_newMax)
+                        --   next =>
+                        --     split at h_a
+                        --     next =>
+                        --       apply Port.node_ne
+                        --       rw [h, ←h_a]
+                        --       exact Nat.ne_of_lt compileAux_ret_lt_newMax
+                        --     next =>
+                        --       rw [←h_a, h]
+                        --       symm
+                        --       apply Port.node_ne
+                        --       apply Nat.ne_of_lt
+                        --       trans (compileAux maxId e1).2
+                        --       · exact compile_binop_consumer_lt_max h_mem a h_mem_a
+                        --       · exact compileAux_max_lt_ret
                     next =>
                       simp only [State.pushAll]
-                      apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs (P := λ x => (s1 port = x port))
+                      apply List.foldl_induction (MergedState e1 e2 maxId s1 ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩) newTs (P := λ x => (s1 port = [] ∧ x port = []))
                       have h_nid_lt : nid < (compileAux maxId e1).2 := compile_id_lt_max _ h_mem
-                      · apply State.irrelevant_pop
-                        · apply Port.node_ne
-                          apply Nat.ne_of_gt
-                          apply Nat.lt_of_lt_of_le
-                          · exact h_nid_lt
-                          · exact h_port_node_id
-                        · apply State.irrelevant_pop
-                          · apply Port.node_ne
-                            apply Nat.ne_of_gt
-                            apply Nat.lt_of_lt_of_le
-                            · exact h_nid_lt
-                            · exact h_port_node_id
-                          · aesop
+                      · sorry
+                        -- apply State.irrelevant_pop
+                        -- · apply Port.node_ne
+                        --   apply Nat.ne_of_gt
+                        --   apply Nat.lt_of_lt_of_le
+                        --   · exact h_nid_lt
+                        --   · exact h_port_node_id
+                        -- · apply State.irrelevant_pop
+                        --   · apply Port.node_ne
+                        --     apply Nat.ne_of_gt
+                        --     apply Nat.lt_of_lt_of_le
+                        --     · exact h_nid_lt
+                        --     · exact h_port_node_id
+                        --   · aesop
                       · intro agg x h_mem_x ih
-                        apply State.irrelevant_push
-                        · simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
-                          newRet] at h_mem_x
-                          obtain ⟨a, ⟨h_mem_a, h_a_eq⟩⟩ := h_mem_x
-                          rw [←h_a_eq]
-                          split
-                          · split <;> assumption
-                          · split
-                            · assumption
-                            · symm
-                              apply Port.node_ne
-                              apply Nat.ne_of_lt
-                              apply Nat.lt_of_lt_of_le
-                              · exact compile_binop_consumer_lt_max h_mem a h_mem_a
-                              · exact h_port_node_id
-                        · exact ih
+                        sorry
+                        -- apply State.irrelevant_push
+                        -- · simp only [List.map_map, List.mem_map, Function.comp_apply, newTs,
+                        --   newRet] at h_mem_x
+                        --   obtain ⟨a, ⟨h_mem_a, h_a_eq⟩⟩ := h_mem_x
+                        --   rw [←h_a_eq]
+                        --   split
+                        --   · split <;> assumption
+                        --   · split
+                        --     · assumption
+                        --     · symm
+                        --       apply Port.node_ne
+                        --       apply Nat.ne_of_lt
+                        --       apply Nat.lt_of_lt_of_le
+                        --       · exact compile_binop_consumer_lt_max h_mem a h_mem_a
+                        --       · exact h_port_node_id
+                        -- · exact ih
             · simp
 
   theorem op_multi_step_to_merged_left {e1 e2 : Exp} {maxId : Nat} {s1 s2 : State}
@@ -1516,6 +1569,18 @@ namespace Compiler
             exact P.left
           · exact P.right
         )
+
+  theorem nid_contained_multi_step_merge_left (nid : Nat)
+    (step1 : (Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContainedWithExtra low1 high1 ⟨nid, 0⟩ h_lt1 ∧ Predicate.isOp))) s1 s2)
+    (step2 : (Relation.ReflTransGen (PredicatedStep (DFGMem dfg ∧ NidContainedWithExtra low2 high2 ⟨nid, 1⟩ h_lt2 ∧ Predicate.isOp))) s3 s4)
+    (h_le : high1 ≤ low2) (h_le2 : high2 ≤ nid)
+    : dfg.MultiStepContainedOp low1 nid (by omega) (s1 ⊕ s3) (s2 ⊕ s3) := by
+    induction step1 with
+    | refl => rfl
+    | tail hd tl ih =>
+      apply Relation.ReflTransGen.tail ih
+
+      sorry
 
   lemma compileAux_initial_state_id_range {env : Env} (e : Exp) (maxId : Nat)
     : ∀ port, port.node < maxId ∨ port.node ≥ (compileAux maxId e).2 → (compileAux maxId e).1.initialState env port = [] := by
@@ -1565,12 +1630,13 @@ namespace Compiler
                   subst h
                   simp_all only [lt_self_iff_false]
                 next h =>
-                  simp_all only [List.nil_eq, ite_eq_right_iff, List.cons_ne_self, imp_false]
-                  apply Aesop.BuiltinRules.not_intro
-                  intro a
-                  subst a
-                  simp_all only [Port.mk.injEq, add_right_eq_self, one_ne_zero, and_true, not_false_eq_true]
-                  omega
+                  apply And.intro
+                  · rfl
+                  · split
+                    · simp_all only [Port.mk.injEq, add_right_eq_self, one_ne_zero, and_true,
+                      not_false_eq_true, List.cons_ne_self]
+                      omega
+                    · rfl
               | inr h_2 =>
                 split
                 next h =>
