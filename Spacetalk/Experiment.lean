@@ -251,55 +251,13 @@ namespace Df
       λ s => ∀ port, port.node < low ∨ port.node ≥ high → s port = []
     ⟩
 
-  def Lean.Meta.isExprReturnEq (goal : Lean.Expr) (decl : Lean.Expr) : Lean.MetaM Bool :=
-    match decl with
-    -- | .forallE _ _ body _ =>
-    --   dbg_trace s!"{body}"
-    --   Lean.Meta.isExprReturnEq goal body
-    -- | .bvar _ =>
-    --   dbg_trace s!"bvar"
-    --   Lean.Meta.isExprDefEq goal decl
-    -- | .fvar _ =>
-    --   dbg_trace s!"fvar"
-    --   Lean.Meta.isExprDefEq goal decl
-    -- | .mvar _ =>
-    --   dbg_trace s!"mvar"
-    --   Lean.Meta.isExprDefEq goal decl
-    -- | .sort _ =>
-    --   dbg_trace s!"sort"
-    --   Lean.Meta.isExprDefEq goal decl
-    | .const name levels =>
-      dbg_trace s!"const {name} {levels}"
-      Lean.Meta.isExprDefEq goal decl
-    -- | .app _ _ =>
-    --   dbg_trace s!"app"
-    --   Lean.Meta.isExprDefEq goal decl
-    | _ =>
-      Lean.Meta.isExprDefEq goal decl
+  macro "nid_range_by_omega " h1:term ", " h2:term : tactic =>
+    `(tactic| (intro port h; simp only [State.union, List.append_eq_nil]; apply And.intro; apply $h1; omega; apply $h2; omega))
 
-  elab "app_assump" : tactic =>
-    Lean.Elab.Tactic.withMainContext do
-      let goal ← Lean.Elab.Tactic.getMainGoal
-      let goalType ← Lean.Elab.Tactic.getMainTarget
-      let ctx ← Lean.MonadLCtx.getLCtx
-      let option_matching_expr ← ctx.findDeclM? fun decl: Lean.LocalDecl => do
-        let declExpr := decl.toExpr
-        let declType ← Lean.Meta.inferType declExpr
-        if ← Lean.Meta.isExprReturnEq declType goalType
-          then return Option.some declExpr
-          else return Option.none
-      match option_matching_expr with
-      | some e =>
-        let goals ← goal.apply e
-        Lean.Elab.Tactic.setGoals goals
-      | none =>
-        Lean.Meta.throwTacticEx `custom_assump_2 goal
-          (m!"unable to find matching hypothesis of type ({goalType})")
-
-  example : (Predicate → Predicate) → True := by
-    intro h
-    -- app_assump
-    sorry
+  macro "state_disjoint_by_omega " p:term ", " s1:term "," h_s1:term ", " h_s2:term : tactic =>
+    `(tactic| (intro h; apply $h_s1; by_contra; (suffices $s1 $p = [] by contradiction); apply $h_s2; omega))
+  macro "state_disjoint_by_contra " s1:term "," h_s1:term ", " s2:term ", " h_s2:term : tactic =>
+    `(tactic| (intro p; apply And.intro; state_disjoint_by_omega p, $s1, $h_s2, $h_s1; state_disjoint_by_omega p, $s2, $h_s1, $h_s2))
 
   theorem DFG.PredicatedMultiStep.merge_disjoint_nid_ranges {dfg : DFG}
     (step1 : dfg.PredicatedMultiStep (NidRange low1 high1) s1 s2)
@@ -316,8 +274,7 @@ namespace Df
         intro port h_nid
         simp only [State.union, List.append_eq_nil]
         apply And.intro
-        · apply h_nid.elim
-          <;> (intro; rw [←h_range] at h; apply h; omega)
+        · apply h_nid.elim <;> (intro; rw [←h_range] at h; apply h; omega)
         · apply h_nid.elim
           <;> (intro;
                have h : (NidRange low2 high2).state s3 := by cases step2 <;> assumption;
@@ -328,47 +285,12 @@ namespace Df
         simp_rw [←h_range] at *
         have ih := ih trivial
         apply DFG.PredicatedMultiStep.head node h_mem _ trivial _ _ ih
+        rename_i s1 s2 _ _ _ _ _
         · apply hd.disjoint_union_right
-          · intro p
-            apply And.intro
-            · intro h
-              apply s3_range
-              by_contra h_p
-              rename_i s1 _ _ _ _ _ _
-              suffices s1 p = [] by contradiction
-              apply h_s1
-              omega
-            · intro h
-              apply h_s1
-              by_contra h_p
-              suffices s3 p = [] by contradiction
-              apply s3_range
-              omega
-          · intro p
-            apply And.intro
-            · intro h
-              apply s3_range
-              by_contra h_p
-              rename_i _ s2 _ _ _ _ _
-              suffices s2 p = [] by contradiction
-              apply h_s2
-              omega
-            · intro h
-              apply h_s2
-              by_contra h_p
-              suffices s3 p = [] by contradiction
-              apply s3_range
-              omega
-        · intro port h
-          simp only [State.union, List.append_eq_nil]
-          apply And.intro
-          · apply h_s1; omega
-          · apply s3_range; omega
-        · intro port h
-          simp only [State.union, List.append_eq_nil]
-          apply And.intro
-          · apply h_s2; omega
-          · apply s3_range; omega
+          · state_disjoint_by_contra s1, h_s1, s3, s3_range
+          · state_disjoint_by_contra s2, h_s2, s3, s3_range
+        · nid_range_by_omega h_s1, s3_range
+        · nid_range_by_omega h_s2, s3_range
     · generalize h_range : NidRange low2 high2 = range at *
       have s2_range : (NidRange low1 high1).state s2 := by
         generalize h_range : NidRange low1 high1 = range at *
@@ -379,55 +301,18 @@ namespace Df
         intro port h_nid
         simp only [State.union, List.append_eq_nil]
         apply And.intro
-        · apply h_nid.elim
-          <;> (intro; apply s2_range; omega)
-        · apply h_nid.elim
-          <;> (intro; rw [←h_range] at h; apply h; omega)
+        · apply h_nid.elim <;> (intro; apply s2_range; omega)
+        · apply h_nid.elim <;> (intro; rw [←h_range] at h; apply h; omega)
       | head node h_mem hd _ h_s1 h_s2 _ ih =>
         simp_rw [←h_range] at *
         have ih := ih trivial
         apply DFG.PredicatedMultiStep.head node h_mem _ trivial _ _ ih
+        rename_i s1 s3 _ _ _ _ _
         · apply hd.disjoint_union_left
-          · intro p
-            apply And.intro
-            · intro h
-              apply s2_range
-              by_contra
-              rename_i s1 _ _ _ _ _ _ _
-              suffices s1 p = [] by contradiction
-              apply h_s1
-              omega
-            · intro h
-              apply h_s1
-              by_contra
-              suffices s2 p = [] by contradiction
-              apply s2_range
-              omega
-          · intro p
-            apply And.intro
-            · intro h
-              apply s2_range
-              by_contra
-              rename_i _ s2 _ _ _ _ _ _
-              suffices s2 p = [] by contradiction
-              apply h_s2
-              omega
-            · intro h
-              apply h_s2
-              by_contra
-              suffices s2 p = [] by contradiction
-              apply s2_range
-              omega
-        · intro port h
-          simp only [State.union, List.append_eq_nil]
-          apply And.intro
-          · apply s2_range; omega
-          · apply h_s1; omega
-        · intro port h
-          simp only [State.union, List.append_eq_nil]
-          apply And.intro
-          · apply s2_range; omega
-          · apply h_s2; omega
+          · state_disjoint_by_contra s1, h_s1, s2, s2_range
+          · state_disjoint_by_contra s3, h_s2, s2, s2_range
+        · nid_range_by_omega s2_range, h_s1
+        · nid_range_by_omega s2_range, h_s2
 
   theorem State.irrelevant_pop {s1 s2 : State} {p1 p2 : Port} (h_ne : p1 ≠ p2) (h_eq : s1 p1 = s2 p1) : s1 p1 = (s2 ↤ p2) p1 := by
     aesop
