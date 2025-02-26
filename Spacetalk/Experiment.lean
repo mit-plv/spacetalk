@@ -271,6 +271,10 @@ namespace Df
     | head node h_mem hd _ _ _ _ ih =>
       exact Relation.ReflTransGen.head (.node node h_mem hd) ih
 
+  theorem DFG.PredicatedMultiStep.single {dfg : DFG} {node : Node} (h_mem : node ∈ dfg) (h_node : P.node node)
+    (h_s1 : P.state s1) (h_s2 : P.state s2) (step : node.Step s1 s2) : dfg.PredicatedMultiStep P s1 s2 :=
+    .head node h_mem step h_node h_s1 h_s2 (.refl h_s2)
+
   @[trans]
   theorem DFG.PredicatedMultiStep.trans {dfg : DFG} (step1 : dfg.PredicatedMultiStep P s1 s2) (step2 : dfg.PredicatedMultiStep P s2 s3)
     : dfg.PredicatedMultiStep P s1 s3 := by
@@ -288,11 +292,11 @@ namespace Df
     λ s => ∀ port, (port.node < low ∨ port.node ≥ high) ∧ port ≠ p → s port = []
 
   @[simp]
-  def IsInput : NodePredicate :=
+  def NodePredicate.IsInput : NodePredicate :=
    (·.isInput = true)
 
   @[simp]
-  def IsOp : NodePredicate :=
+  def NodePredicate.IsOp : NodePredicate :=
    (·.isOp = true)
 
   macro "nid_range_by_omega " : tactic =>
@@ -456,16 +460,11 @@ namespace Df
     : node.Step s1 s3 :=
     heq ▸ step
 
-  inductive DFG.Canonical : DFG → State → State → Prop
+  inductive DFG.Canonical : DFG → (low high : Nat) → State → State → Prop
     | mk : (s2 : State)
-      → dfg.MultiStep s1 s2
-      → dfg.MultiStep s2 s3
-      → DFG.Canonical dfg s1 s3
-  -- inductive DFG.Canonical : DFG → (low : Nat) → (high : Nat) → (h : low < high) → State → State → Prop
-  --   | mk : (s2 : State)
-  --     → dfg.MultiStepContainedInput low high h s1 s2
-  --     → dfg.MultiStepContainedOp low high h s2 s3
-  --     → DFG.Canonical dfg low high h s1 s3
+      → dfg.PredicatedMultiStep ⟨NodePredicate.IsInput, NidRange low high⟩ s1 s2
+      → dfg.PredicatedMultiStep ⟨NodePredicate.IsOp, NidRange low high⟩ s2 s3
+      → DFG.Canonical dfg low high s1 s3
 
   -- theorem predicate_transfer {P1 P2 : Predicate} (h : ∀ node, ∀ a b, P1 node a b → P2 node a b)
   --   (step : Relation.ReflTransGen (PredicatedStep P1) s1 s2) : Relation.ReflTransGen (PredicatedStep P2) s1 s2 := by
@@ -479,11 +478,11 @@ namespace Df
   -- theorem PredicatedStep.subst_right (s : PredicatedStep P s1 s2) (heq : s2 = s3) : PredicatedStep P s1 s3 :=
   --   heq ▸ s
 
-  -- theorem DFG.Canonical.to_multi_step {dfg : DFG} {s1 s3 : State} {h : low < high} : dfg.Canonical low high h s1 s3 → dfg.MultiStep s1 s3
-  -- | .mk s2 t1 t2 => by
-  --   trans s2
-  --   · apply predicate_transfer (λ _ _ _ h => h.left) t1
-  --   · apply predicate_transfer (λ _ _ _ h => h.left) t2
+  theorem DFG.Canonical.to_MultiStep {dfg : DFG} {s1 s3 : State} : dfg.Canonical low high s1 s3 → dfg.MultiStep s1 s3
+  | .mk s2 t1 t2 => by
+    trans s2
+    · exact PredicatedMultiStep.to_MultiStep t1
+    · exact PredicatedMultiStep.to_MultiStep t2
 
   theorem DFG.MultiStep.subst_right {dfg : DFG} {s1 s2 s3 : State}
     (node : Node) (h_mem : node ∈ dfg) (step : node.Step s1 s2) (heq : s2 = s3)
@@ -1807,21 +1806,23 @@ namespace Compiler
   --         nid_contained_multi_step_append_node (nid_contained_multi_step_append_node ih2)
   --       sorry
 
+  lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nat} (eval : Eval env e v)
+    : (compileAux maxId e).1.dfg.Canonical maxId (compileAux maxId e).2 ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) := by
+    induction e with
+    | var s =>
+      apply DFG.Canonical.mk (s2 := (compileAux maxId (Exp.var s)).1.finalState v)
+      ·
+        sorry
+      · apply DFG.PredicatedMultiStep.refl
+        intro port h
+        simp only [MarkedDFG.finalState, compileAux, ite_eq_right_iff, List.cons_ne_self, imp_false]
+        apply Port.node_ne
+        apply h.elim <;> (simp_all only [compileAux]; omega)
+    | plus => sorry
+
   theorem compile_value_correct {e : Exp} {env : Env} {v : Ty} (eval : Eval env e v)
     : (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
-    match e with
-    | .var _ => by
-      apply Relation.ReflTransGen.single
-      apply DFG.Step.node ⟨0, .input [⟨1, 0⟩]⟩
-      · simp
-      · cases eval
-        apply Node.Step.subst_right
-        · apply Node.Step.input
-          aesop
-        · aesop
-    | .plus e1 e2 =>
-
-      sorry
+    (compileAux_canonical_trace eval).to_MultiStep
 
   theorem compile_confluence {e : Exp} {a b c : State}
     : (compile e).dfg.MultiStep a b → (compile e).dfg.MultiStep a c
