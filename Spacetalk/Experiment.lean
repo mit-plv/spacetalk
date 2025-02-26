@@ -275,6 +275,13 @@ namespace Df
     (h_s1 : P.state s1) (h_s2 : P.state s2) (step : node.Step s1 s2) : dfg.PredicatedMultiStep P s1 s2 :=
     .head node h_mem step h_node h_s1 h_s2 (.refl h_s2)
 
+  theorem DFG.PredicatedMultiStep.append_node (step : DFG.PredicatedMultiStep dfg P s1 s2) (node : Node) : DFG.PredicatedMultiStep (node :: dfg) P s1 s2 := by
+    induction step with
+    | refl h => exact DFG.PredicatedMultiStep.refl h
+    | head node h_mem =>
+      apply DFG.PredicatedMultiStep.head node (List.mem_cons_of_mem _ h_mem)
+      <;> assumption
+
   @[trans]
   theorem DFG.PredicatedMultiStep.trans {dfg : DFG} (step1 : dfg.PredicatedMultiStep P s1 s2) (step2 : dfg.PredicatedMultiStep P s2 s3)
     : dfg.PredicatedMultiStep P s1 s3 := by
@@ -418,7 +425,7 @@ namespace Df
     (step2 : dfg.PredicatedMultiStep ⟨P_node, NidRangePlusPort low2 high2 ⟨extraNid, pid2⟩⟩ s3 s4)
     (h_lt1 : low1 < high1)
     (h_lt2 : low2 < high2)
-    (h_lt3 : high2 < extraNid)
+    (h_lt3 : high2 ≤ extraNid)
     (h_ne : pid1 ≠ pid2)
     (h_le : high1 ≤ low2)
     : dfg.PredicatedMultiStep ⟨P_node, NidRange low1 (extraNid + 1)⟩ (s1 ⊕ s3) (s2 ⊕ s4) := by
@@ -1664,6 +1671,12 @@ namespace Compiler
   --                       -- · exact ih
   --           · simp
 
+  theorem op_multi_step_to_merged_left {e1 e2 : Exp} {maxId : Nat} {s1 s2 : State}
+    (step : (compileAux maxId e1).1.dfg.PredicatedMultiStep ⟨NodePredicate.IsOp, NidRange maxId (compileAux maxId e1).2⟩ s1 s2)
+    : (MergeTwo e1 e2 maxId).1.PredicatedMultiStep
+        ⟨NodePredicate.IsOp, NidRangePlusPort maxId (compileAux maxId e1).2 ⟨(compileAux (compileAux maxId e1).2 e2).2, 0⟩⟩
+        (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) := by
+    sorry
   -- theorem op_multi_step_to_merged_left {e1 e2 : Exp} {maxId : Nat} {s1 s2 : State}
   --   (step : (compileAux maxId e1).1.dfg.MultiStepContainedOp maxId (compileAux maxId e1).2 compile_maxId_lt s1 s2)
   --   : (Relation.ReflTransGen (PredicatedStep (DFGMem (MergeTwo e1 e2 maxId).1 ∧ NidContainedWithExtra maxId (compileAux maxId e1).2 ⟨(compileAux (compileAux maxId e1).2 e2).2, 0⟩ compile_maxId_lt ∧ Predicate.isOp)))
@@ -1672,6 +1685,14 @@ namespace Compiler
   --   | refl => rfl
   --   | tail hd tl ih =>
   --     exact Relation.ReflTransGen.tail ih (op_step_to_merged_left tl)
+
+  theorem op_multi_step_to_merged_right {e1 e2 : Exp} {maxId : Nat} {s1 s2 : State}
+   (step : (compileAux (compileAux maxId e1).2 e2).1.dfg.PredicatedMultiStep
+             ⟨NodePredicate.IsOp, NidRange (compileAux maxId e1).2 (compileAux (compileAux maxId e1).2 e2).2⟩ s1 s2)
+   : (MergeTwo e1 e2 maxId).1.PredicatedMultiStep
+       ⟨NodePredicate.IsOp, NidRangePlusPort (compileAux maxId e1).2 (compileAux (compileAux maxId e1).2 e2).2 ⟨(compileAux (compileAux maxId e1).2 e2).2, 1⟩⟩
+       (MergedState e1 e2 maxId s1) (MergedState e1 e2 maxId s2) := by
+   sorry
 
   -- theorem op_multi_step_to_merged_right {e1 e2 : Exp} {maxId : Nat} {s1 s2 : State}
   --   (step : (compileAux (compileAux maxId e1).2 e2).1.dfg.MultiStepContainedOp
@@ -1808,17 +1829,51 @@ namespace Compiler
 
   lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nat} (eval : Eval env e v)
     : (compileAux maxId e).1.dfg.Canonical maxId (compileAux maxId e).2 ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) := by
-    induction e with
+    cases e with
     | var s =>
       apply DFG.Canonical.mk (s2 := (compileAux maxId (Exp.var s)).1.finalState v)
-      ·
-        sorry
+      · apply DFG.PredicatedMultiStep.single (node := ⟨maxId, .input [⟨maxId + 1, 0⟩]⟩)
+        · simp
+        · simp
+        repeat (intro port h
+                simp_all only [compileAux, MarkedDFG.initialState, VarMap.initialState, MarkedDFG.finalState,
+                  List.foldl_cons, List.foldl_nil, State.push, State.empty, List.concat_eq_append,
+                  List.nil_append, ite_eq_right_iff, List.cons_ne_self]
+                apply Port.node_ne
+                simp only
+                omega)
+        · apply Node.Step.subst_right (Node.Step.input (by aesop))
+          · cases eval
+            aesop
       · apply DFG.PredicatedMultiStep.refl
         intro port h
         simp only [MarkedDFG.finalState, compileAux, ite_eq_right_iff, List.cons_ne_self, imp_false]
         apply Port.node_ne
         apply h.elim <;> (simp_all only [compileAux]; omega)
-    | plus => sorry
+    | plus e1 e2 =>
+      cases eval with
+      | plus eval1 eval2 =>
+        rename_i x y
+        obtain ⟨e1_s2, e1_inp, e1_ops⟩ := compileAux_canonical_trace eval1 (maxId := maxId)
+        obtain ⟨e2_s2, e2_inp, e2_ops⟩ := compileAux_canonical_trace eval2 (maxId := (compileAux maxId e1).2)
+        apply DFG.Canonical.mk ((MergedState e1 e2 maxId e1_s2) ⊕ (MergedState e1 e2 maxId e1_s2))
+        · sorry
+        · have ih1 := op_multi_step_to_merged_left (e2 := e2) e1_ops
+          have ih2 := op_multi_step_to_merged_right e2_ops
+          have ih1
+            : (compileAux maxId (e1.plus e2)).1.dfg.PredicatedMultiStep
+                ⟨NodePredicate.IsOp, NidRangePlusPort maxId (compileAux maxId e1).2 ⟨(compileAux (compileAux maxId e1).2 e2).2, 0⟩⟩
+                (MergedState e1 e2 maxId e1_s2) (MergedState e1 e2 maxId ((compileAux maxId e1).1.finalState x)) :=
+            DFG.PredicatedMultiStep.append_node (DFG.PredicatedMultiStep.append_node ih1 _) _
+          have ih2
+            : (compileAux maxId (e1.plus e2)).1.dfg.PredicatedMultiStep
+                ⟨NodePredicate.IsOp, NidRangePlusPort (compileAux maxId e1).2 (compileAux (compileAux maxId e1).2 e2).2 ⟨(compileAux (compileAux maxId e1).2 e2).2, 1⟩⟩
+                (MergedState e1 e2 maxId e2_s2) (MergedState e1 e2 maxId ((compileAux (compileAux maxId e1).2 e2).1.finalState y)) :=
+            DFG.PredicatedMultiStep.append_node (DFG.PredicatedMultiStep.append_node ih2 _) _
+          have := DFG.PredicatedMultiStep.merge_disjoint_nid_ranges_plus_port ih1 ih2
+                    compile_maxId_lt compile_maxId_lt (le_refl _) (by simp) (le_refl _)
+          
+          sorry
 
   theorem compile_value_correct {e : Exp} {env : Env} {v : Ty} (eval : Eval env e v)
     : (compile e).dfg.MultiStep ((compile e).initialState env) ((compile e).finalState v) :=
