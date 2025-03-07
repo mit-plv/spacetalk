@@ -5,6 +5,7 @@ import Mathlib.Data.List.Sublists
 
 open Mathlib
 
+-- TODO: Use `List.foldlRecOn`
 theorem List.foldl_induction {f : α → β → α} (init : α) (l : List β)
   (P : α → Prop)
   (h : P init)
@@ -90,6 +91,11 @@ namespace Df
   @[simp]
   def Node.isOp : Node → Bool
     | ⟨_, .binOp _ _⟩ => true
+    | _ => false
+
+  @[simp]
+  def Node.isOutput : Node → Bool
+    | ⟨_, .output⟩ => true
     | _ => false
 
   abbrev DFG := List Node
@@ -471,6 +477,14 @@ namespace Compiler
 
   abbrev VarMap := List (String × Port)
 
+  @[simp]
+  def VarMap.varNames (vm : VarMap) : List String :=
+    vm.map Prod.fst
+
+  @[simp]
+  def VarMap.Disjoint (vm1 vm2 : VarMap) : Prop :=
+    vm1.varNames.Disjoint vm2.varNames
+
   structure MarkedDFG where
     dfg : DFG
     vars : VarMap
@@ -513,7 +527,7 @@ namespace Compiler
 
   -- Update the "return" value of a graph to be the port of the new output node
   def Node.updateReturn (ret : Port) (newRet : Port) (node : Node) : Node :=
-    let replace t := if t = ret then newRet else t
+    let replace (t : Port) := if t = ret then newRet else t
     {node with op :=
       match node.op with
       | .input ts => .input (ts.map replace)
@@ -1597,6 +1611,50 @@ namespace Compiler
         · exact compile_vars_id_lt_newMax _ h_mem
         · exact h
 
+  lemma compileAux_varMap_input_node
+    : ∀ varPort ∈ (compileAux maxId e).1.vars, ∃ ps, ⟨varPort.2.node, .input ps⟩ ∈ (compileAux maxId e).1.dfg:= by
+    intro varPort h_mem_varPort
+    cases e with
+    | var => aesop
+    | plus e1 e2 =>
+      simp only [compileAux, mergeTwo, mergeVars] at h_mem_varPort
+      have := List.foldlRecOn
+        (compileAux (compileAux maxId e1).2 e2).1.vars
+        (mergeVarsAux (compileAux maxId e1).1)
+        ((compileAux maxId e1).1.dfg ++ (compileAux (compileAux maxId e1).2 e2).1.dfg, (compileAux maxId e1).1.vars)
+        (motive := λ agg => ∀ varPort, varPort ∈ (Prod.snd agg) → ∃ ps, ⟨varPort.2.node, .input ps⟩ ∈ agg.1)
+      have' ⟨ps, h⟩ := this _ _ _ h_mem_varPort
+      · exists List.map
+          ((λ t => if t = (compileAux (compileAux maxId e1).2 e2).1.ret then ⟨(compileAux (compileAux maxId e1).2 e2).2, 1⟩ else t)
+            ∘ λ t => if t = (compileAux maxId e1).1.ret then ⟨(compileAux (compileAux maxId e1).2 e2).2, 0⟩ else t) ps
+        repeat (apply List.mem_cons.mpr; apply Or.intro_right)
+        simp only [List.map_map, List.mem_filter, List.mem_map, Function.comp_apply, and_true]
+        exists ⟨varPort.2.node, .input ps⟩
+        apply And.intro h
+        simp [Node.updateReturn]
+      · intro varPort h_mem
+        obtain ⟨ps, h⟩ := compileAux_varMap_input_node _ h_mem
+        exists ps
+        apply List.mem_append.mpr
+        apply Or.intro_left _ h
+      · intro agg ih varPort' h_mem' varPort h_mem
+        simp only [mergeVarsAux] at *
+        split at h_mem
+        · split at h_mem
+          · sorry
+          · simp only [Prod.mk.eta, List.mem_cons] at h_mem
+            apply h_mem.elim
+            · intro h
+              simp
+              rw [h]
+              have ih' := compileAux_varMap_input_node _ h_mem'
+              
+
+              sorry
+            · intro h
+              exact ih _ h
+        · exact ih _ h_mem
+
   lemma compileAux_canonical_trace {e : Exp} {env : Env} {v : Ty} {maxId : Nat} (eval : Eval env e v)
     : (compileAux maxId e).1.dfg.Canonical maxId (compileAux maxId e).2 ((compileAux maxId e).1.initialState env) ((compileAux maxId e).1.finalState v) := by
     cases e with
@@ -1628,6 +1686,27 @@ namespace Compiler
         obtain ⟨e2_s2, e2_inp, e2_ops⟩ := compileAux_canonical_trace eval2 (maxId := (compileAux maxId e1).2)
         apply DFG.Canonical.mk ((MergedState e1 e2 maxId e1_s2) ⊕ (MergedState e1 e2 maxId e2_s2))
         · sorry
+          -- by_cases h : (compileAux maxId e1).1.vars.Disjoint (compileAux (compileAux maxId e1).2 e2).1.vars
+          -- · have ih1 : (MergeTwo e1 e2 maxId).1.PredicatedMultiStep
+          --               ⟨NodePredicate.IsInput, NidRange maxId (compileAux maxId e1).2⟩
+          --               ((MergeTwo e1 e2 maxId).2.initialState env)
+          --               ((MergedState e1 e2 maxId e1_s2) ⊕ ((compileAux (compileAux maxId e1).2 e2).1.initialState env)) := by
+          --     have : ((MergeTwo e1 e2 maxId).2.initialState env) =
+          --            ((compileAux maxId e1).1.initialState env) ⊕ ((compileAux (compileAux maxId e1).2 e2).1.initialState env) := by
+          --       simp only [MergeTwo, mergeTwo]
+
+
+          --       sorry
+          --     generalize h_P : (⟨NodePredicate.IsInput, NidRange maxId (compileAux maxId e1).2⟩ : Predicate) = range at *
+          --     generalize h_init : ((compileAux maxId e1).1.initialState env) = init at *
+          --     induction e1_inp with
+          --     | refl h_s =>
+          --       simp_rw [←h_P, ←h_init] at *
+
+          --       sorry
+          --     | head => sorry
+          --   sorry
+          -- · sorry
         · have ih1 := op_multi_step_to_merged_left (e2 := e2) e1_ops
           have ih2 := op_multi_step_to_merged_right e2_ops
           have ih1
