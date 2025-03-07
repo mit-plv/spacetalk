@@ -277,10 +277,10 @@ lemma output_if_ret
     simp_all only [compileAux]
     have :
       ∀ node ∈ mergeTwo
-                (compileAux maxNid e1).fst
-                (compileAux (compileAux maxNid e1).snd e2).fst
-                (compileAux (compileAux maxNid e1).snd e2).snd,
-        node.id ≠ (compileAux (compileAux maxNid e1).snd e2).snd + 1 := by
+                (compileAux maxNid e1).1
+                (compileAux (compileAux maxNid e1).2 e2).1
+                (compileAux (compileAux maxNid e1).2 e2).2,
+        node.id ≠ (compileAux (compileAux maxNid e1).2 e2).2 + 1 := by
       intro node h_mem
       apply (mergeTwo_nid_in_original _ h_mem).elim
       <;> (intro h;
@@ -290,7 +290,7 @@ lemma output_if_ret
            omega)
     aesop
 
-lemma compile_value_correct (eval : Eval env e v)
+theorem compile_value_correct (eval : Eval env e v)
   : (compileAux maxNid e).1.dfg.MultiStep ((compileAux maxNid e).1.initialState env) ((compileAux maxNid e).1.finalState v) := by
   cases e with
   | var name =>
@@ -301,13 +301,9 @@ lemma compile_value_correct (eval : Eval env e v)
       cases eval
       aesop
   | plus e1 e2 =>
-    cases eval
-    rename_i x y eval1 eval2
-    have ih1 := compile_value_correct eval1 (maxNid := maxNid)
-    have ih2 := compile_value_correct eval2 (maxNid := (compileAux maxNid e1).2)
     sorry
 
-theorem compile_confluence {e : Exp} {a b c : State}
+theorem compile_confluence
   : (compile e).dfg.MultiStep a b → (compile e).dfg.MultiStep a c
       → ∃ d, (compile e).dfg.MultiStep b d ∧ (compile e).dfg.MultiStep c d
   | .refl, .refl => ⟨a, .intro .refl .refl⟩
@@ -321,7 +317,7 @@ theorem compile_confluence {e : Exp} {a b c : State}
     cases ns1 <;> cases ns2
     all_goals sorry
 
-theorem final_state_halts {e : Exp} {v : Nat}
+theorem final_state_halts
   : ∀ s, (compile e).dfg.MultiStep ((compile e).finalState v) s → s = (compile e).finalState v := by
   intro s step
   induction step with
@@ -334,14 +330,26 @@ theorem final_state_halts {e : Exp} {v : Nat}
          have := output_if_ret _ h_mem (Port.mk.inj h_ret).left;
          simp at this)
 
-theorem compile_correct {e : Exp} {env : Env} {v : Nat}
+theorem compile_correct
   : Eval env e v
     → ∀ s, (compile e).dfg.MultiStep ((compile e).initialState env) s
           → (compile e).dfg.MultiStep s ((compile e).finalState v) := by
-  intro as s ds
-  have := compile_confluence ds (compile_value_correct as)
-  obtain ⟨w, h⟩ := this
-  obtain ⟨left, right⟩ := h
-  have := final_state_halts w right
-  rw [this] at left
-  exact left
+  intro eval _ step
+  obtain ⟨final, ⟨trace, refl_step⟩⟩ := compile_confluence step (compile_value_correct eval)
+  rw [final_state_halts final refl_step] at trace
+  exact trace
+
+theorem compile_no_infinite_trace
+  : ¬∃ f : Nat → State,
+    f 0 = ((compile e).initialState env)
+      ∧ ∀ n, (compile e).dfg.Step (f n) (f (n + 1)) := by
+  intro h
+  obtain ⟨f, ⟨h_zero, h_succ⟩⟩ := h
+  cases e with
+  | var name =>
+    have := h_succ 1
+    have : f 1 = .empty ↦ ⟨env name, ⟨1, 0⟩⟩ := by
+      have := h_succ 0
+      sorry
+    sorry
+  | plus => sorry
