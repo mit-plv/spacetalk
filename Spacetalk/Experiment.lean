@@ -5,18 +5,6 @@ import Mathlib.Data.List.Sublists
 
 open Mathlib
 
--- TODO: Use `List.foldlRecOn`
-theorem List.foldl_induction {f : α → β → α} (init : α) (l : List β)
-  (P : α → Prop)
-  (h : P init)
-  (ih : ∀ agg, ∀ x ∈ l, P agg → P (f agg x))
-  : P (l.foldl f init) :=
-  match l with
-  | [] => h
-  | hd :: tl =>
-    List.foldl_induction (f init hd) tl P (ih init hd (by simp_all) h)
-      (λ agg x h_mem h => ih agg x (by simp_all) h)
-
 theorem List.foldl_dual_induction {f₁ : α₁ → β₁ → α₁} {f₂ : α₂ → β₂ → α₂}
   (init₁ : α₁) (init₂ : α₂) (l₁ : List β₁) (l₂ : List β₂) (P : α₁ → α₂ → Prop)
   (h_length : l₁.length = l₂.length) (h : P init₁ init₂)
@@ -35,28 +23,11 @@ theorem List.foldl_dual_induction {f₁ : α₁ → β₁ → α₁} {f₂ : α�
 
 abbrev Ty := Nat
 
-namespace Arith
-  inductive Exp
-    | var : String → Exp
-    | plus : Exp → Exp → Exp
-
-  abbrev Env := String → Ty
-
-  inductive Eval : Env → Exp → Ty → Prop
-    | var : env s = v → Eval env (.var s) v
-    | plus : Eval env e1 x
-      → Eval env e2 y
-      → Eval env (.plus e1 e2) (x + y)
-end Arith
-
 namespace Df
   structure Port where
     node : Nat
     port : Nat
   deriving DecidableEq
-
-  theorem Port.node_ne {p1 p2 : Port} : p1.node ≠ p2.node → p1 ≠ p2 := by
-    aesop
 
   structure Token where
     val : Ty
@@ -70,36 +41,17 @@ namespace Df
     | plus
 
   inductive NodeOp
-    | input : List Port → NodeOp
+    | input : String → List Port → NodeOp
     | output : NodeOp
     | binOp : BinOp → List Port → NodeOp
-
-  @[simp]
-  def NodeOp.isOutput : NodeOp → Bool
-    | .output => true
-    | _ => false
 
   structure Node where
     id : Nat
     op : NodeOp
 
-  @[simp]
-  def Node.isInput : Node → Bool
-    | ⟨_, .input _⟩ => true
-    | _ => false
-
-  @[simp]
-  def Node.isOp : Node → Bool
-    | ⟨_, .binOp _ _⟩ => true
-    | _ => false
-
-  @[simp]
-  def Node.isOutput : Node → Bool
-    | ⟨_, .output⟩ => true
-    | _ => false
-
   abbrev DFG := List Node
 
+  -- Semantics
   abbrev State := Port → List Ty
 
   @[simp]
@@ -136,9 +88,32 @@ namespace Df
 
   inductive Node.Step : Node → State → State → Prop
     | input : (h : s ⟨nid, 0⟩ ≠ [])
-      → Node.Step ⟨nid, .input ts⟩ s (s ↤ ⟨nid, 0⟩ ↦↦ ⟨(s ⟨nid, 0⟩).head h, ts⟩)
+      → Node.Step ⟨nid, .input var ts⟩ s (s ↤ ⟨nid, 0⟩ ↦↦ ⟨(s ⟨nid, 0⟩).head h, ts⟩)
     | binOp : {op : BinOp} → (h1 : s ⟨nid, 0⟩ ≠ []) → (h2 : s ⟨nid, 1⟩ ≠ [])
       → Node.Step ⟨nid, .binOp op ts⟩ s (s ↤ ⟨nid, 0⟩ ↤ ⟨nid, 1⟩ ↦↦ ⟨op.denote ((s ⟨nid, 0⟩).head h1) ((s ⟨nid, 1⟩).head h2), ts⟩)
+
+  theorem Port.node_ne {p1 p2 : Port} : p1.node ≠ p2.node → p1 ≠ p2 := by
+    aesop
+
+  @[simp]
+  def NodeOp.isOutput : NodeOp → Bool
+    | .output => true
+    | _ => false
+
+  @[simp]
+  def Node.isInput : Node → Bool
+    | ⟨_, .input _ _⟩ => true
+    | _ => false
+
+  @[simp]
+  def Node.isOp : Node → Bool
+    | ⟨_, .binOp _ _⟩ => true
+    | _ => false
+
+  @[simp]
+  def Node.isOutput : Node → Bool
+    | ⟨_, .output⟩ => true
+    | _ => false
 
   theorem State.union_disjoint_commute {s1 s2 : State} : s1.Disjoint s2 → (s1 ⊕ s2) = s2 ⊕ s1 := by
     intro h
@@ -1648,7 +1623,7 @@ namespace Compiler
               simp
               rw [h]
               have ih' := compileAux_varMap_input_node _ h_mem'
-              
+
 
               sorry
             · intro h
