@@ -48,9 +48,9 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
     rename_i right
     intro node_1 a
     subst h_eq
-    simp_all only
+    simp_all only [Node.notOutput]
     split at right
-    next x heq =>
+    next x id heq =>
       split at heq
       next x_1 var ports heq_1 =>
         split at heq_1
@@ -72,7 +72,7 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
       rename_i x_2 var ports heq
       split at heq
       rename_i x_3 var_1 ports_1 heq_1
-      simp_all only [reduceCtorEq, implies_true, NodeOp.input.injEq]
+      simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true, NodeOp.input.injEq]
       obtain ⟨left, right⟩ := heq
       subst right left
       apply Or.inl
@@ -93,14 +93,14 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
       on_goal 2 => {rfl
       }
       · simp_all only
-      simp_all only [NodeOp.input.injEq, true_and, imp_false, reduceCtorEq]
-      simp_all only [reduceCtorEq, implies_true]
-      simp_all only [imp_false, not_true_eq_false]
-      simp_all only [imp_false, not_true_eq_false]
-      simp_all only [imp_false, not_true_eq_false]
-      simp_all only [reduceCtorEq, implies_true]
-      simp_all only [NodeOp.binOp.injEq, true_and, imp_false, reduceCtorEq]
-      simp_all only [reduceCtorEq, implies_true, NodeOp.binOp.injEq, true_and]
+      simp_all only [Node.mk.injEq, NodeOp.input.injEq, true_and, imp_false, not_and, forall_eq', reduceCtorEq]
+      simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true]
+      simp_all only [Node.mk.injEq, and_true, imp_false, forall_eq']
+      simp_all only [Node.mk.injEq, and_true, imp_false, forall_eq']
+      simp_all only [Node.mk.injEq, and_true, imp_false, forall_eq']
+      simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true]
+      simp_all only [Node.mk.injEq, NodeOp.binOp.injEq, true_and, imp_false, not_and, forall_eq', reduceCtorEq]
+      simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true, NodeOp.binOp.injEq, true_and]
       subst heq
       apply Or.inl
       apply Exists.intro
@@ -122,13 +122,13 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
       · -- aesop?
         rename_i right node'_1 h_mem'_1 node_1 id var' a x x_1
         subst h_eq
-        simp_all only [List.get?_eq_getElem?, imp_false, List.mem_cons]
+        simp_all only [List.get?_eq_getElem?, imp_false, List.mem_cons, Node.notOutput]
         cases h_mem' with
         | inl h =>
           subst h
           simp_all only
           split at right
-          next x_2 heq =>
+          next x_2 id_1 heq =>
             split at heq
             next x_3 var ports heq_1 =>
               split at heq_1
@@ -151,7 +151,7 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
               split at heq
               next x_5 var_1 ports_1
                 heq_1 =>
-                simp_all only [reduceCtorEq, implies_true, NodeOp.input.injEq]
+                simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true, NodeOp.input.injEq]
                 obtain ⟨left, right⟩ := heq
                 subst left right
                 apply Or.inr
@@ -159,20 +159,24 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
                 · apply And.intro
                   · exact h_mem
                   · simp_all only
-              next x_5 heq_1 => simp_all only [NodeOp.input.injEq, true_and, imp_false, reduceCtorEq]
-              next x_5 op ports_1 heq_1 => simp_all only [reduceCtorEq, implies_true]
+              next x_5 heq_1 =>
+                simp_all only [Node.mk.injEq, NodeOp.input.injEq, true_and, imp_false, not_and, forall_eq',
+                  reduceCtorEq]
+              next x_5 op ports_1 heq_1 => simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true]
             next x_4 heq =>
               split at heq
-              next x_5 var ports heq_1 => simp_all only [implies_true, imp_false, not_true_eq_false]
-              next x_5 heq_1 => simp_all only [implies_true, imp_false, not_true_eq_false]
-              next x_5 op ports heq_1 => simp_all only [implies_true, imp_false, not_true_eq_false]
+              next x_5 var ports heq_1 => simp_all only [Node.mk.injEq, and_true, implies_true, imp_false, forall_eq']
+              next x_5 heq_1 => simp_all only [Node.mk.injEq, and_true, implies_true, imp_false, forall_eq']
+              next x_5 op ports heq_1 => simp_all only [Node.mk.injEq, and_true, implies_true, imp_false, forall_eq']
             next x_4 op ports heq =>
               split at heq
-              next x_5 var ports_1 heq_1 => simp_all only [reduceCtorEq, implies_true]
-              next x_5 heq_1 => simp_all only [NodeOp.binOp.injEq, true_and, imp_false, reduceCtorEq]
+              next x_5 var ports_1 heq_1 => simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true]
+              next x_5 heq_1 =>
+                simp_all only [Node.mk.injEq, NodeOp.binOp.injEq, true_and, imp_false, not_and, forall_eq',
+                  reduceCtorEq]
               next x_5 op_1 ports_1
                 heq_1 =>
-                simp_all only [reduceCtorEq, implies_true, NodeOp.binOp.injEq, true_and]
+                simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true, NodeOp.binOp.injEq, true_and]
                 subst heq
                 apply Or.inr
                 apply Exists.intro
@@ -183,12 +187,12 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
     · -- aesop?
       rename_i right node'_1 h_mem'_1 node_2 x
       subst h_eq
-      simp_all only [imp_false, List.mem_cons]
+      simp_all only [imp_false, List.mem_cons, Node.notOutput]
       cases h_mem' with
       | inl h =>
         subst h
         split at right
-        next x_1 heq =>
+        next x_1 id heq =>
           split at heq
           next x_2 var ports heq_1 =>
             split at heq_1
@@ -210,9 +214,9 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
           rename_i x_3 var ports heq
           split at heq
           rename_i x_4 var_1 ports_1 heq_1
-          simp_all only [reduceCtorEq, implies_true, NodeOp.input.injEq]
+          simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true, NodeOp.input.injEq]
           obtain ⟨left, right⟩ := heq
-          subst left right
+          subst right left
           apply Or.inr
           apply Exists.intro
           apply And.intro
@@ -231,14 +235,14 @@ lemma mergeTwo_nid_in_original : ∀ node ∈ mergeTwo g1 g2 newOutput, (∃ nod
           on_goal 2 => {rfl
           }
           · simp_all only
-          simp_all only [NodeOp.input.injEq, true_and, imp_false, reduceCtorEq]
-          simp_all only [reduceCtorEq, implies_true]
-          simp_all only [imp_false, not_true_eq_false]
-          simp_all only [imp_false, not_true_eq_false]
-          simp_all only [imp_false, not_true_eq_false]
-          simp_all only [reduceCtorEq, implies_true]
-          simp_all only [NodeOp.binOp.injEq, true_and, imp_false, reduceCtorEq]
-          simp_all only [reduceCtorEq, implies_true, NodeOp.binOp.injEq, true_and]
+          simp_all only [Node.mk.injEq, NodeOp.input.injEq, true_and, imp_false, not_and, forall_eq', reduceCtorEq]
+          simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true]
+          simp_all only [Node.mk.injEq, and_true, imp_false, forall_eq']
+          simp_all only [Node.mk.injEq, and_true, imp_false, forall_eq']
+          simp_all only [Node.mk.injEq, and_true, imp_false, forall_eq']
+          simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true]
+          simp_all only [Node.mk.injEq, NodeOp.binOp.injEq, true_and, imp_false, not_and, forall_eq', reduceCtorEq]
+          simp_all only [Node.mk.injEq, reduceCtorEq, and_false, implies_true, NodeOp.binOp.injEq, true_and]
           subst heq
           apply Or.inr
           apply Exists.intro
