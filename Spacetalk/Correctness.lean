@@ -6,9 +6,19 @@ open Arith DF Compiler
 namespace DF
 
   @[simp]
-  def Node.isOutput : Node → Bool
-    | ⟨_, .output⟩ => true
-    | _ => false
+  def DFG.initialState (dfg : DFG) (env : Env) : State :=
+    dfg.foldl
+      (λ state node =>
+        match node with
+        | ⟨nid, .input var _⟩ => state ↦ ⟨env var, ⟨nid, 0⟩⟩
+        | _ => state
+      )
+      .empty
+
+  @[simp]
+  def State.union (s1 s2 : State) : State :=
+    λ port => s1 port ++ s2 port
+  infixl:100 " ⊕ " => State.union
 
 end DF
 
@@ -16,13 +26,7 @@ namespace Compiler.MarkedDFG
 
   @[simp]
   def initialState (dfg : MarkedDFG) (env : Env) : State :=
-    dfg.dfg.foldl
-      (λ state node =>
-        match node with
-        | ⟨nid, .input var _⟩ => state ↦ ⟨env var, ⟨nid, 0⟩⟩
-        | _ => state
-      )
-      .empty
+    dfg.dfg.initialState env
 
   @[simp]
   def finalState (dfg : MarkedDFG) (val : Nat) : State :=
@@ -290,6 +294,86 @@ lemma output_if_ret
            omega)
     aesop
 
+lemma mergeVars_trace (maxNid : Nat) (e1 e2 : Exp) (env : Env) (x y : Nat)
+  : (compileAux maxNid e1).1.dfg.MultiStep ((compileAux maxNid e1).1.initialState env) ((compileAux maxNid e1).1.finalState x)
+    → (compileAux (compileAux maxNid e1).2 e2).1.dfg.MultiStep ((compileAux (compileAux maxNid e1).2 e2).1.initialState env) ((compileAux (compileAux maxNid e1).2 e2).1.finalState y)
+    → (mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).MultiStep
+        ((mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).initialState env)
+        (((compileAux maxNid e1).1.finalState x) ⊕ ((compileAux (compileAux maxNid e1).2 e2).1.finalState y)) := by
+  sorry
+
+lemma dfg_cons_non_input_initial_state (dfg : DFG) (node : Node)
+  (h : node.isInput = false) : (DFG.initialState (node :: dfg) env) = dfg.initialState env := by
+  aesop
+
+lemma removeOutputNodes_initial_state
+  : (removeOutputNodes dfg).initialState env = dfg.initialState env :=
+  let rec go {init : State} {dfg : DFG} :
+    (removeOutputNodes dfg).foldl
+      (λ state node =>
+        match node with
+        | ⟨nid, .input var _⟩ => state ↦ ⟨env var, ⟨nid, 0⟩⟩
+        | _ => state
+      )
+      init =
+    dfg.foldl
+      (λ state node =>
+        match node with
+        | ⟨nid, .input var _⟩ => state ↦ ⟨env var, ⟨nid, 0⟩⟩
+        | _ => state
+      )
+      init := by
+    cases dfg with
+    | nil => rfl
+    | cons hd tl =>
+      have := List.filter_cons (x := hd) (xs := tl) (p := Node.notOutput)
+      by_cases h : hd.notOutput
+      · simp only [h, if_true] at this
+        simp only [removeOutputNodes, this, List.foldl_cons]
+        apply go
+      · have := @go init tl
+        aesop
+  go
+
+lemma updateReturn_initial_state
+  : (updateReturn dfg ret newRet).initialState env = dfg.initialState env :=
+  let rec go {init : State} {dfg : DFG} :
+    (updateReturn dfg ret newRet).foldl
+      (λ state node =>
+        match node with
+        | ⟨nid, .input var _⟩ => state ↦ ⟨env var, ⟨nid, 0⟩⟩
+        | _ => state
+      )
+      init =
+    dfg.foldl
+      (λ state node =>
+        match node with
+        | ⟨nid, .input var _⟩ => state ↦ ⟨env var, ⟨nid, 0⟩⟩
+        | _ => state
+      )
+      init := by
+    cases dfg with
+    | nil => rfl
+    | cons hd tl =>
+      simp only [updateReturn, List.map_cons, List.foldl_cons]
+      have : (match
+               ({ id := hd.id,
+                  op :=
+                     match hd.op with
+                     | NodeOp.input var ports => NodeOp.input var (List.map (fun p => if p = ret then newRet else p) ports)
+                     | NodeOp.output => NodeOp.output
+                     | NodeOp.binOp op ports => NodeOp.binOp op (List.map (fun p => if p = ret then newRet else p) ports) } : Node) with
+              | { id := nid, op := NodeOp.input var a } => init ↦ { val := env var, port := { node := nid, port := 0 } }
+              | x => init) =
+              (match hd with
+              | { id := nid, op := NodeOp.input var a } => init ↦ { val := env var, port := { node := nid, port := 0 } }
+              | x => init) := by
+        obtain ⟨nid, op⟩ := hd
+        cases op <;> simp
+      rw [←this]
+      apply go
+  go
+
 theorem compile_value_correct (eval : Eval env e v)
   : (compileAux maxNid e).1.dfg.MultiStep ((compileAux maxNid e).1.initialState env) ((compileAux maxNid e).1.finalState v) := by
   cases e with
@@ -301,7 +385,37 @@ theorem compile_value_correct (eval : Eval env e v)
       cases eval
       aesop
   | plus e1 e2 =>
-    sorry
+    cases eval
+    rename_i x y eval1 eval2
+    apply Relation.ReflTransGen.tail
+      (b := .empty ↦ ⟨x, ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩⟩
+                   ↦ ⟨y, ⟨(compileAux (compileAux maxNid e1).2 e2).2, 1⟩⟩)
+    · have := mergeVars_trace maxNid e1 e2 env x y (compile_value_correct eval1) (compile_value_correct eval2)
+      have : ((compileAux maxNid (e1.plus e2)).fst.initialState env) =
+              (mergeVars (compileAux maxNid e1).fst.dfg (compileAux (compileAux maxNid e1).snd e2).fst.dfg).initialState env := by
+        simp only [compileAux]
+        have h1 := dfg_cons_non_input_initial_state (env := env)
+                    (⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, .output⟩ ::
+                      mergeTwo (compileAux maxNid e1).1 (compileAux (compileAux maxNid e1).2 e2).1 (compileAux (compileAux maxNid e1).2 e2).2)
+                    ⟨(compileAux (compileAux maxNid e1).2 e2).2, .binOp .plus [⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, 0⟩]⟩
+                    (by simp)
+        have h2 := dfg_cons_non_input_initial_state (env := env)
+                    (mergeTwo (compileAux maxNid e1).1 (compileAux (compileAux maxNid e1).2 e2).1 (compileAux (compileAux maxNid e1).2 e2).2)
+                    ⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, .output⟩
+                    (by simp)
+        simp_rw [MarkedDFG.initialState, h1, h2]
+        simp only [mergeTwo]
+        rw [removeOutputNodes_initial_state]
+        rw [updateReturn_initial_state]
+        rw [updateReturn_initial_state]
+      rw [this]
+
+      sorry
+    · apply DFG.Step.node ⟨(compileAux (compileAux maxNid e1).2 e2).2,
+                            .binOp .plus [⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, 0⟩]⟩
+      · simp
+      · refine Eq.subst ?_ (Node.Step.binOp ?_ ?_)
+        aesop
 
 theorem compile_confluence
   : (compile e).dfg.MultiStep a b → (compile e).dfg.MultiStep a c
@@ -347,9 +461,29 @@ theorem compile_no_infinite_trace
   obtain ⟨f, ⟨h_zero, h_succ⟩⟩ := h
   cases e with
   | var name =>
-    have := h_succ 1
-    have : f 1 = .empty ↦ ⟨env name, ⟨1, 0⟩⟩ := by
+    have h_f1 : f 1 = .empty ↦ ⟨env name, ⟨1, 0⟩⟩ := by
       have := h_succ 0
-      sorry
+      rw [h_zero] at this
+      obtain ⟨node, h_mem, step⟩ := this
+      simp only [compile, compileAux, Nat.zero_add,
+        List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at h_mem
+      generalize f 1 = s2 at *
+      apply h_mem.elim
+      <;> (intro h;
+           rw [h] at step;
+           cases step;
+           try aesop)
+    have := h_succ 1
+    rw [h_f1] at this
+    obtain ⟨node, h_mem, step⟩ := this
+    simp only [compile, compileAux, Nat.zero_add,
+      List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at h_mem
+    generalize f 2 = s2 at *
+    apply h_mem.elim
+    <;> (intro h;
+         rw [h] at step;
+         cases step;
+         try contradiction)
+  | plus =>
+    simp only [compile, compileAux] at h_succ
     sorry
-  | plus => sorry

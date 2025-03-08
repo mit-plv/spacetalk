@@ -20,6 +20,21 @@ structure Node where
   id : Nat
   op : NodeOp
 
+@[simp]
+def Node.isInput : Node → Bool
+  | ⟨_, .input _ _⟩ => true
+  | _ => false
+
+@[simp]
+def Node.isOutput : Node → Bool
+  | ⟨_, .output⟩ => true
+  | _ => false
+
+@[simp]
+def Node.notOutput : Node → Bool
+  | ⟨_, .output⟩ => false
+  | _ => true
+
 abbrev DFG := List Node
 
 -- Semantics

@@ -32,7 +32,7 @@ def mergeVars (g1 g2 : DFG) : DFG :=
 
 -- Update the "return" value of a graph to be the port of the new output node
 @[simp]
-def updateReturn (dfg : DFG) (ret : Port) (newRet : Port) :=
+def updateReturn (dfg : DFG) (ret : Port) (newRet : Port) : DFG :=
   dfg.map
     (λ node =>
       let replace (p : Port) := if p = ret then newRet else p
@@ -46,7 +46,7 @@ def updateReturn (dfg : DFG) (ret : Port) (newRet : Port) :=
 
 @[simp]
 def removeOutputNodes (dfg : DFG) : DFG :=
-  dfg.filter (λ node => match node.op with | .output => false | _ => true)
+  dfg.filter Node.notOutput
 
 @[simp]
 def mergeTwo (g1 g2 : MarkedDFG) (newOutput : Nat)
