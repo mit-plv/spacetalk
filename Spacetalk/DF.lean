@@ -42,6 +42,10 @@ def Node.opTypeEq : Node → Node → Bool
   | ⟨_, .binOp _ _⟩, ⟨_, .binOp _ _⟩ => true
   | _, _ => false
 
+theorem Node.opTypeEq_refl {node : Node} : Node.opTypeEq node node := by
+  obtain ⟨nid, op⟩ := node
+  cases op <;> rfl
+
 abbrev DFG := List Node
 
 -- Semantics

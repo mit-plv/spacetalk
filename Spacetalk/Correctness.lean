@@ -156,8 +156,54 @@ lemma mergeVars_maintains_op_type
   : ∀ node ∈ mergeVars g1 g2,
       (∃ node' ∈ g1, node'.id = node.id ∧ node'.opTypeEq node) ∨
        ∃ node' ∈ g2, node'.id = node.id ∧ node'.opTypeEq node := by
-
-  sorry
+  intro node h_mem
+  simp only [mergeVars] at h_mem
+  apply List.foldlRecOn g2 mergeVarsAux g1 _ _ node h_mem
+    (motive := λ (dfg : DFG) => ∀ node ∈ dfg,
+                                  (∃ node' ∈ g1, node'.id = node.id ∧ node'.opTypeEq node) ∨
+                                  ∃ node' ∈ g2, node'.id = node.id ∧ node'.opTypeEq node)
+  · intro node h_mem
+    apply Or.intro_left
+    exists node
+    apply And.intro h_mem
+    exact And.intro rfl Node.opTypeEq_refl
+  · intro dfg ih node h_mem node' h_mem'
+    simp only [mergeVarsAux, List.get?_eq_getElem?] at h_mem'
+    split at h_mem'
+    · split at h_mem'
+      · apply (List.mem_or_eq_of_mem_set h_mem').elim
+        · intro h
+          exact ih node' h
+        · intro h
+          rename_i nid var ports _ nid' var' ports' heq
+          have := List.mem_of_getElem? heq
+          apply (ih _ this).elim
+          all_goals (intro h; obtain ⟨node, ⟨h_mem, ⟨h_id, h_op⟩⟩⟩ := h)
+          on_goal 1 => apply Or.intro_left
+          on_goal 2 => apply Or.intro_right
+          all_goals
+           (exists node
+            apply And.intro h_mem
+            apply And.intro
+            · rw [h_id]
+              rw [h]
+            · obtain ⟨nid, op⟩ := node
+              obtain ⟨nid', op'⟩ := node'
+              cases op <;> cases op' <;> simp_all)
+      · apply (List.mem_cons.mp h_mem').elim
+        · intro h
+          apply Or.intro_right
+          exists node'
+          apply And.intro (h ▸ h_mem)
+          exact And.intro rfl Node.opTypeEq_refl
+        · intro h; exact ih node' h
+    · apply (List.mem_cons.mp h_mem').elim
+      · intro h
+        apply Or.intro_right
+        exists node
+        apply And.intro h_mem
+        exact And.intro (by rw [h]) (h ▸ Node.opTypeEq_refl)
+      · intro h; exact ih node' h
 
 lemma mergeVars_trace (maxNid : Nat) (e1 e2 : Exp) (env : Env) (x y : Nat)
   : (compileAux maxNid e1).1.dfg.MultiStep ((compileAux maxNid e1).1.initialState env) ((compileAux maxNid e1).1.finalState x)
