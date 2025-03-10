@@ -1,4 +1,5 @@
 import Mathlib.Logic.Relation
+import Aesop
 
 namespace DF
 
@@ -7,6 +8,9 @@ structure Port where
   node : Nat
   port : Nat
 deriving DecidableEq
+
+theorem Port.node_ne {p1 p2 : Port} : p1.node ≠ p2.node → p1 ≠ p2 := by
+  aesop
 
 inductive BinOp
   | plus

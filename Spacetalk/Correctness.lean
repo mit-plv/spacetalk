@@ -211,6 +211,7 @@ lemma mergeVars_trace (maxNid : Nat) (e1 e2 : Exp) (env : Env) (x y : Nat)
     → (mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).MultiStep
         ((mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).initialState env)
         (((compileAux maxNid e1).1.finalState x) ⊕ ((compileAux (compileAux maxNid e1).2 e2).1.finalState y)) := by
+  intro t1 t2
   sorry
 
 lemma dfg_cons_non_input_initial_state (dfg : DFG) (node : Node)
@@ -328,7 +329,17 @@ abbrev MergedState (e1 e2 : Exp) (maxId : Nat) (s : State) : State :=
 lemma mergeVars_to_compile_plus
   : (mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).MultiStep s1 s2
     → (compileAux maxNid (e1.plus e2)).1.dfg.MultiStep (MergedState e1 e2 maxNid s1) (MergedState e1 e2 maxNid s2) := by
-  sorry
+  intro h
+  induction h with
+  | refl => rfl
+  | tail hd tl ih =>
+    apply Relation.ReflTransGen.tail ih
+    obtain ⟨node, h_mem, step⟩ := tl
+    match node, step with
+    | ⟨nid, .input var ports⟩, .input h =>
+      sorry
+    | ⟨nid, .binOp op ports⟩, .binOp h1 h2 =>
+      sorry
 
 theorem compile_value_correct (eval : Eval env e v)
   : (compileAux maxNid e).1.dfg.MultiStep ((compileAux maxNid e).1.initialState env) ((compileAux maxNid e).1.finalState v) := by
@@ -383,7 +394,68 @@ theorem compile_value_correct (eval : Eval env e v)
           cases op <;> contradiction)
       have := this ▸ mergeVars_to_compile_plus merge_trace
       refine Eq.subst ?_ this
-      sorry
+      have : (compileAux maxNid e1).1.ret ≠ (compileAux (compileAux maxNid e1).2 e2).1.ret := by
+        apply Port.node_ne
+        have := @ret_lt_new_maxNid maxNid e1
+        have := @maxNid_lt_ret (compileAux maxNid e1).2 e2
+        omega
+      -- aesop?
+      simp_all only [mergeVars, MarkedDFG.initialState, DFG.initialState, compileAux, mergeTwo, removeOutputNodes,
+        updateReturn, List.map_map, List.foldl_cons, MarkedDFG.finalState, MergedState, ne_eq]
+      ext x_1 i a : 3
+      simp_all only [mergedState, State.union, State.push, ↓reduceIte, State.empty, List.concat_eq_append,
+        List.nil_append, List.singleton_append, Option.mem_def, Port.mk.injEq, Nat.add_one_ne_zero, and_false]
+      apply Iff.intro
+      · intro a_1
+        split
+        next h =>
+          subst h
+          simp_all only [Port.mk.injEq, Nat.add_one_ne_zero, and_false, ↓reduceIte]
+          split at a_1
+          next h => simp_all only [not_true_eq_false]
+          next h => simp_all only [List.nil_append]
+        next h =>
+          simp_all only [↓reduceIte]
+          split
+          next h_1 =>
+            subst h_1
+            simp_all only [↓reduceIte, Port.mk.injEq, reduceCtorEq, and_false, not_false_eq_true]
+          next h_1 =>
+            simp_all only [↓reduceIte, List.getElem?_nil, reduceCtorEq]
+            split at a_1
+            next h_2 => simp_all only [List.getElem?_nil, reduceCtorEq]
+            next h_2 =>
+              split at a_1
+              next h_3 =>
+                split at a_1
+                next h_4 =>
+                  subst h_3
+                  simp_all only [not_true_eq_false]
+                next h_4 =>
+                  subst h_3
+                  simp_all only [not_false_eq_true, List.singleton_append, or_false, not_true_eq_false]
+              next h_3 =>
+                split at a_1
+                next h_4 =>
+                  subst h_4
+                  simp_all only [List.nil_append, or_true, not_true_eq_false]
+                next h_4 =>
+                  simp_all only [or_self, not_false_eq_true, List.append_nil, List.getElem?_nil, reduceCtorEq]
+      · intro a_1
+        split
+        next h =>
+          subst h
+          simp_all only [Port.mk.injEq, reduceCtorEq, and_false, ↓reduceIte]
+        next h =>
+          simp_all only [↓reduceIte]
+          split
+          next h_1 =>
+            subst h_1
+            simp_all only [↓reduceIte, Port.mk.injEq, Nat.add_one_ne_zero, and_false, not_false_eq_true]
+            split
+            next h => simp_all only [not_true_eq_false]
+            next h => simp_all only [List.nil_append]
+          next h_1 => simp_all only [↓reduceIte, List.getElem?_nil, reduceCtorEq]
     · apply DFG.Step.node ⟨(compileAux (compileAux maxNid e1).2 e2).2,
                             .binOp .plus [⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, 0⟩]⟩
       · simp
