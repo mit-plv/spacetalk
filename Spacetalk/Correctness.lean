@@ -111,6 +111,18 @@ lemma maxNid_le_nid : ∀ node ∈ (compileAux maxNid e).1.dfg, maxNid ≤ node.
       have := @maxNid_lt_new_maxNid maxNid e1
       omega)
 
+lemma ret_lt_new_maxNid : (compileAux maxNid e).1.ret.node < (compileAux maxNid e).2 :=  by
+  cases e <;> simp_all
+
+lemma maxNid_lt_ret : maxNid < (compileAux maxNid e).1.ret.node :=  by
+  cases e with
+  | var => simp
+  | plus e1 e2 =>
+    simp only [compileAux]
+    have := @maxNid_lt_new_maxNid maxNid e1
+    have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+    omega
+
 lemma output_if_ret
   : ∀ node ∈ (compileAux maxNid e).1.dfg, node.id = (compileAux maxNid e).1.ret.node → node.isOutput = true := by
   intro node h_mem h_ret
@@ -139,6 +151,13 @@ lemma initial_state_node_eq {dfg : DFG}
   apply List.foldlRecOn (motive := λ (s : State) => s p ≠ [] → ∃ node ∈ dfg, node.id = p.node ∧ node.isInput = true) _ _ _ _ _ h
   · simp_all
   · aesop
+
+lemma mergeVars_maintains_op_type
+  : ∀ node ∈ mergeVars g1 g2,
+      (∃ node' ∈ g1, node'.id = node.id ∧ node'.opTypeEq node) ∨
+       ∃ node' ∈ g2, node'.id = node.id ∧ node'.opTypeEq node := by
+
+  sorry
 
 lemma mergeVars_trace (maxNid : Nat) (e1 e2 : Exp) (env : Env) (x y : Nat)
   : (compileAux maxNid e1).1.dfg.MultiStep ((compileAux maxNid e1).1.initialState env) ((compileAux maxNid e1).1.finalState x)
@@ -298,23 +317,24 @@ theorem compile_value_correct (eval : Eval env e v)
             have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
             simp only at h_id'
             omega))
-        · by_contra h
-          obtain ⟨node, ⟨h_mem, ⟨h_id⟩⟩⟩ := initial_state_node_eq _ h
-          have := @output_if_ret maxNid e1 node
-          have : node.isOutput = true := by
-            simp at h_mem
-            apply List.foldlRecOn _ _ _ _ _ _ ⟨h_mem, h_id⟩
-              (motive := λ dfg => ∀ node : Node, node ∈ dfg ∧ node.id = (compileAux maxNid e1).1.ret.node → node.isOutput = true)
-            · intro node h
-              obtain ⟨h_mem, h_id⟩ := h
-              exact output_if_ret _ h_mem h_id
-            · intro dfg ih node h_mem node' h'
-              obtain ⟨h_mem', h_id'⟩ := h'
-              -- have := m
-
-              sorry
-          sorry
-        · sorry
+        repeat
+         (by_contra h
+          obtain ⟨node, ⟨h_mem, ⟨h_id, h_input⟩⟩⟩ := initial_state_node_eq _ h
+          have h_output : node.isOutput = true := by
+            apply (mergeVars_maintains_op_type node h_mem).elim
+            all_goals (intro h; obtain ⟨node', ⟨h_mem', ⟨h_id', h_op⟩⟩⟩ := h)
+            all_goals first
+            | (have := output_if_ret node' h_mem' (h_id' ▸ h_id)
+               obtain ⟨nid, op⟩ := node
+               obtain ⟨nid', op'⟩ := node'
+               cases op <;> cases op' <;> simp_all)
+            | (have := maxNid_le_nid node' h_mem'
+               have := @ret_lt_new_maxNid maxNid e1
+               have := nid_lt_new_maxNid node' h_mem'
+               have := @maxNid_lt_ret (compileAux maxNid e1).2 e2
+               omega)
+          obtain ⟨nid, op⟩ := node
+          cases op <;> contradiction)
       have := this ▸ mergeVars_to_compile_plus merge_trace
       refine Eq.subst ?_ this
       sorry

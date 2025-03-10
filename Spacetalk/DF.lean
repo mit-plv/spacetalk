@@ -35,6 +35,13 @@ def Node.notOutput : Node → Bool
   | ⟨_, .output⟩ => false
   | _ => true
 
+@[simp]
+def Node.opTypeEq : Node → Node → Bool
+  | ⟨_, .input _ _⟩, ⟨_, .input _ _⟩
+  | ⟨_, .output⟩, ⟨_, .output⟩
+  | ⟨_, .binOp _ _⟩, ⟨_, .binOp _ _⟩ => true
+  | _, _ => false
+
 abbrev DFG := List Node
 
 -- Semantics
