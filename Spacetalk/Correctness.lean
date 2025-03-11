@@ -34,6 +34,13 @@ namespace Compiler.MarkedDFG
 
 end Compiler.MarkedDFG
 
+lemma dfg_step_cons {dfg : DFG} (step : dfg.Step s1 s2) : DFG.Step (node :: dfg) s1 s2 := by
+  obtain ⟨node, h_mem, step⟩ := step
+  apply DFG.Step.node node _ step
+  apply List.mem_cons.mpr
+  apply Or.intro_right
+  exact h_mem
+
 lemma mergeVars_nid_in_original : ∀ node ∈ mergeVars g1 g2, (∃ node' ∈ g1, node.id = node'.id) ∨ ∃ node' ∈ g2, node.id = node'.id := by
   intro node h_mem
   apply List.foldlRecOn g2 mergeVarsAux g1 _ _ _ h_mem
@@ -326,6 +333,66 @@ lemma merged_state_unchanged {s : State}
 abbrev MergedState (e1 e2 : Exp) (maxId : Nat) (s : State) : State :=
   mergedState (compileAux maxId e1).1 (compileAux (compileAux maxId e1).2 e2).1 (compileAux (compileAux maxId e1).2 e2).2 s
 
+lemma mergeVars_non_output_nodes_not_ret
+  (h_mem : node ∈ mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg)
+  (h_output : node.notOutput = true)
+  : ⟨node.id, port1⟩ ≠ (compileAux maxNid e1).1.ret ∧ ⟨node.id, port2⟩ ≠ (compileAux (compileAux maxNid e1).2 e2).1.ret := by
+  apply List.foldlRecOn _ _ _ _ _ _ h_mem h_output
+    (motive := λ dfg => ∀ node ∈ dfg, node.notOutput = true → ⟨node.id, port1⟩ ≠ (compileAux maxNid e1).1.ret ∧ ⟨node.id, port2⟩ ≠ (compileAux (compileAux maxNid e1).2 e2).1.ret)
+  · intro node h_mem h_not_output
+    apply And.intro
+    · apply Port.node_ne
+      by_contra h
+      have := output_if_ret _ h_mem h
+      aesop
+    · apply Port.node_ne
+      have := nid_lt_new_maxNid _ h_mem
+      have := @maxNid_lt_ret (compileAux maxNid e1).2 e2
+      simp only
+      omega
+  · intro dfg ih node h_mem node' h_mem' h_not_output
+    simp only [mergeVarsAux] at h_mem'
+    split at h_mem'
+    · split at h_mem'
+      · apply (List.mem_or_eq_of_mem_set h_mem').elim
+        · intro h; exact ih _ h h_not_output
+        · intro h
+          rename_i heq
+          have := List.mem_iff_get.mpr ⟨_, (List.get?_eq_some_iff.mp heq).snd⟩
+          have := ih _ this (by simp)
+          rw [h]
+          exact this
+      · apply (List.mem_cons.mp h_mem').elim
+        · intro h
+          rw [h]
+          rw [h] at h_not_output
+          apply And.intro
+          · apply Port.node_ne
+            have := maxNid_le_nid _ h_mem
+            have := @ret_lt_new_maxNid maxNid e1
+            simp_all only
+            omega
+          · apply Port.node_ne
+            by_contra h
+            have := output_if_ret _ h_mem
+            aesop
+        · intro h; exact ih _ h h_not_output
+    · apply (List.mem_cons.mp h_mem').elim
+      · intro h
+        rw [h]
+        rw [h] at h_not_output
+        apply And.intro
+        · apply Port.node_ne
+          have := maxNid_le_nid _ h_mem
+          have := @ret_lt_new_maxNid maxNid e1
+          simp only
+          omega
+        · apply Port.node_ne
+          by_contra h
+          have := output_if_ret _ h_mem
+          aesop
+      · intro h; exact ih _ h h_not_output
+
 lemma mergeVars_to_compile_plus
   : (mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).MultiStep s1 s2
     → (compileAux maxNid (e1.plus e2)).1.dfg.MultiStep (MergedState e1 e2 maxNid s1) (MergedState e1 e2 maxNid s2) := by
@@ -334,10 +401,39 @@ lemma mergeVars_to_compile_plus
   | refl => rfl
   | tail hd tl ih =>
     apply Relation.ReflTransGen.tail ih
+    simp only [compileAux]
+    repeat apply dfg_step_cons
     obtain ⟨node, h_mem, step⟩ := tl
     match node, step with
     | ⟨nid, .input var ports⟩, .input h =>
-      sorry
+      let newNode : Node :=
+        updateReturnAux (compileAux (compileAux maxNid e1).2 e2).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 1⟩
+        (updateReturnAux (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩ ⟨nid, .input var ports⟩)
+      simp only [mergeTwo]
+      apply DFG.Step.node newNode
+      · apply List.mem_filter.mpr
+        apply And.intro
+        · apply List.mem_map.mpr
+          exists updateReturnAux (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩ ⟨nid, .input var ports⟩
+          apply And.intro _ rfl
+          apply List.mem_map.mpr
+          exists ⟨nid, .input var ports⟩
+        · simp [newNode]
+      · refine Eq.subst ?_ (Node.Step.input ?_)
+        · 
+          sorry
+        · have := mergeVars_non_output_nodes_not_ret (port1 := 0) (port2 := 0) h_mem (by simp)
+          have : nid ≠ (compileAux (compileAux maxNid e1).2 e2).2 := by
+            apply (mergeVars_nid_in_original _ h_mem).elim
+            <;>
+             (intro h
+              obtain ⟨node, ⟨h_mem, h_nid⟩⟩ := h
+              simp only at h_nid
+              rw [h_nid]
+              have := nid_lt_new_maxNid _ h_mem
+              have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+              omega)
+          simp_all
     | ⟨nid, .binOp op ports⟩, .binOp h1 h2 =>
       sorry
 

@@ -30,19 +30,20 @@ def mergeVarsAux (dfg : DFG) (node : Node) : DFG :=
 def mergeVars (g1 g2 : DFG) : DFG :=
   g2.foldl mergeVarsAux g1
 
+@[simp]
+def updateReturnAux (ret : Port) (newRet : Port) (node : Node) :=
+  let replace (p : Port) := if p = ret then newRet else p
+  {node with op :=
+    match node.op with
+    | .input var ports => .input var (ports.map replace)
+    | .output => .output
+    | .binOp op ports => .binOp op (ports.map replace)
+  }
+
 -- Update the "return" value of a graph to be the port of the new output node
 @[simp]
 def updateReturn (dfg : DFG) (ret : Port) (newRet : Port) : DFG :=
-  dfg.map
-    (λ node =>
-      let replace (p : Port) := if p = ret then newRet else p
-      {node with op :=
-        match node.op with
-        | .input var ports => .input var (ports.map replace)
-        | .output => .output
-        | .binOp op ports => .binOp op (ports.map replace)
-      }
-    )
+  dfg.map (updateReturnAux ret newRet)
 
 @[simp]
 def removeOutputNodes (dfg : DFG) : DFG :=
