@@ -248,9 +248,7 @@ lemma mergeVars_maintains_op_type
         apply And.intro h_mem
         exact And.intro (by rw [h]) (h ▸ Node.opTypeEq_refl)
 
-lemma varNames_nodup_false {dfg : DFG} : ⟨nid1, .input var ports1⟩ ∈ dfg → ⟨nid2, .input var ports2⟩ ∈ dfg → False := sorry
-
-lemma mergeVars_no_overlapping_cons (h : (g1 ++ g2).varNames.Nodup) : mergeVars g1 g2 = g1 ++ g2 := by
+lemma mergeVars_no_overlapping_cons (h_nodup : (g1 ++ g2).varNames.Nodup) : mergeVars g1 g2 = g1 ++ g2 := by
   cases g2 with
   | nil => simp
   | cons hd tl =>
@@ -268,9 +266,23 @@ lemma mergeVars_no_overlapping_cons (h : (g1 ++ g2).varNames.Nodup) : mergeVars 
         ).mp rfl
       simp only [heq, decide_eq_true_eq] at h
       exfalso
-      -- apply varNames_nodup_false (dfg := g1 ++ ⟨id1, .input var1 ports2⟩ :: tl)
-      -- · have := List.mem_of_getElem heq
-      sorry
+      simp only [DFG.varNames, List.filterMap_append, Option.some.injEq,
+        List.filterMap_cons_some] at h_nodup
+      have ⟨h_g1, h_g2, h_disj⟩ := List.nodup_append.mp h_nodup
+      apply h_disj (a := var1)
+      · rw [←h]
+        have := List.mem_of_getElem heq
+        -- aesop?
+        subst h
+        simp_all only [List.getElem?_eq_getElem, List.nodup_cons, List.mem_filterMap, not_exists, not_and,
+          List.disjoint_cons_right]
+        obtain ⟨left, right_1⟩ := h_g2
+        obtain ⟨left_1, right_2⟩ := h_disj
+        apply Exists.intro
+        · apply And.intro
+          · exact this
+          · simp_all only
+      · simp
     all_goals
       refine Eq.subst ?_ (mergeVars_no_overlapping_cons ?_) <;> aesop
 
@@ -288,12 +300,15 @@ lemma mergeVars_empty_left (h : g.varNames.Nodup) : mergeVars [] g = g := by
       rw [←List.singleton_append] at h
       exact mergeVars_no_overlapping_cons h)
 
-lemma mergeVars_initial_state_breakdown (h : g1.Disjoint g2)
+lemma mergeVars_initial_state_breakdown
+  (h_g1 : g1.varNames.Nodup)
+  (h_g2 : g2.varNames.Nodup)
+  (h_disj : g1.Disjoint g2)
   : (mergeVars g1 g2).initialState env = g1.initialState env ⊕ mergeVarsRightInitialState g1 g2 env := by
   induction g1 with
   | nil =>
+    rw [mergeVars_empty_left h_g2]
     simp
-    sorry
   | cons hd tl ih => sorry
 
 lemma mergeVars_trace (maxNid : Nat) (e1 e2 : Exp) (env : Env) (x y : Nat)
