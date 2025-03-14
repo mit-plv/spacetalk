@@ -1,5 +1,6 @@
 import Aesop
 import Spacetalk.Compiler
+import Mathlib.Data.List.Nodup
 
 open Arith DF Compiler
 
@@ -20,6 +21,14 @@ namespace DF
     λ port => s1 port ++ s2 port
   infixl:100 " ⊕ " => State.union
 
+  @[simp]
+  theorem State.empty_union_left : State.empty.union s = s := by
+    aesop
+
+  @[simp]
+  theorem State.empty_union_right {s : State} : s.union .empty = s := by
+    aesop
+
 end DF
 
 namespace Compiler.MarkedDFG
@@ -33,6 +42,31 @@ namespace Compiler.MarkedDFG
     .empty ↦ ⟨val, dfg.ret⟩
 
 end Compiler.MarkedDFG
+
+@[simp]
+def mergeVarsRightInitialState (g1 g2 : DFG) (env : Env) : State :=
+  g2.foldl (
+    λ s node =>
+      match node with
+      | ⟨nid, .input var _⟩ =>
+        match g1[(sameVarInputIdx g1 var)]? with
+        | some _ => s
+        | none => s ↦ ⟨env var, ⟨nid, 0⟩⟩
+      | _ => s
+  ) .empty
+
+@[simp]
+def mergeVarsOverlappingState (g1 g2 : DFG) (env : Env) : State :=
+  g2.foldl (
+    λ s node =>
+      match node with
+      | ⟨_, .input var ports⟩ =>
+        match g1[(sameVarInputIdx g1 var)]? with
+        | some ⟨_, .input var _⟩ =>
+          s ↦↦ ⟨env var, ports⟩
+        | _ => s
+      | _ => s
+  ) .empty
 
 lemma dfg_step_cons {dfg : DFG} (step : dfg.Step s1 s2) : DFG.Step (node :: dfg) s1 s2 := by
   obtain ⟨node, h_mem, step⟩ := step
@@ -57,7 +91,7 @@ lemma mergeVars_nid_in_original : ∀ node ∈ mergeVars g1 g2, (∃ node' ∈ g
         · intro h
           rw [h]
           rename_i heq
-          have ⟨node, h⟩ := List.get?_eq_some_iff.mp heq
+          have ⟨_, h⟩ := List.getElem?_eq_some_iff.mp heq
           apply ih _ (List.mem_iff_get.mpr ⟨_, h⟩)
       · aesop
     · aesop
@@ -175,7 +209,7 @@ lemma mergeVars_maintains_op_type
     apply And.intro h_mem
     exact And.intro rfl Node.opTypeEq_refl
   · intro dfg ih node h_mem node' h_mem'
-    simp only [mergeVarsAux, List.get?_eq_getElem?] at h_mem'
+    simp only [mergeVarsAux] at h_mem'
     split at h_mem'
     · split at h_mem'
       · apply (List.mem_or_eq_of_mem_set h_mem').elim
@@ -197,20 +231,70 @@ lemma mergeVars_maintains_op_type
             · obtain ⟨nid, op⟩ := node
               obtain ⟨nid', op'⟩ := node'
               cases op <;> cases op' <;> simp_all)
-      · apply (List.mem_cons.mp h_mem').elim
+      · simp only [List.concat_eq_append, List.mem_append, List.mem_singleton] at h_mem'
+        apply h_mem'.elim
+        · intro h; exact ih node' h
         · intro h
           apply Or.intro_right
           exists node'
           apply And.intro (h ▸ h_mem)
           exact And.intro rfl Node.opTypeEq_refl
-        · intro h; exact ih node' h
-    · apply (List.mem_cons.mp h_mem').elim
+    · simp only [List.concat_eq_append, List.mem_append, List.mem_singleton] at h_mem'
+      apply h_mem'.elim
+      · intro h; exact ih node' h
       · intro h
         apply Or.intro_right
         exists node
         apply And.intro h_mem
         exact And.intro (by rw [h]) (h ▸ Node.opTypeEq_refl)
-      · intro h; exact ih node' h
+
+lemma varNames_nodup_false {dfg : DFG} : ⟨nid1, .input var ports1⟩ ∈ dfg → ⟨nid2, .input var ports2⟩ ∈ dfg → False := sorry
+
+lemma mergeVars_no_overlapping_cons (h : (g1 ++ g2).varNames.Nodup) : mergeVars g1 g2 = g1 ++ g2 := by
+  cases g2 with
+  | nil => simp
+  | cons hd tl =>
+    simp only [mergeVars, List.foldl_cons, mergeVarsAux, sameVarInputIdx]
+    split; split
+    next heq =>
+      rename_i _ id1 var1 ports1 _ id2 var2 ports2
+      have ⟨h, heq⟩ := List.getElem?_eq_some_iff.mp heq
+      have ⟨h, _⟩ :=
+        (List.findIdx_eq h
+          (p := fun node =>
+            match node with
+            | { id := id2, op := NodeOp.input var2 ports2 } => decide (var2 = var1)
+            | x => false)
+        ).mp rfl
+      simp only [heq, decide_eq_true_eq] at h
+      exfalso
+      -- apply varNames_nodup_false (dfg := g1 ++ ⟨id1, .input var1 ports2⟩ :: tl)
+      -- · have := List.mem_of_getElem heq
+      sorry
+    all_goals
+      refine Eq.subst ?_ (mergeVars_no_overlapping_cons ?_) <;> aesop
+
+@[simp]
+lemma mergeVars_empty_left (h : g.varNames.Nodup) : mergeVars [] g = g := by
+  induction g with
+  | nil => simp
+  | cons hd tl ih =>
+    simp
+    split
+    <;>
+     (conv =>
+        rhs
+        rw [←List.singleton_append]
+      rw [←List.singleton_append] at h
+      exact mergeVars_no_overlapping_cons h)
+
+lemma mergeVars_initial_state_breakdown (h : g1.Disjoint g2)
+  : (mergeVars g1 g2).initialState env = g1.initialState env ⊕ mergeVarsRightInitialState g1 g2 env := by
+  induction g1 with
+  | nil =>
+    simp
+    sorry
+  | cons hd tl ih => sorry
 
 lemma mergeVars_trace (maxNid : Nat) (e1 e2 : Exp) (env : Env) (x y : Nat)
   : (compileAux maxNid e1).1.dfg.MultiStep ((compileAux maxNid e1).1.initialState env) ((compileAux maxNid e1).1.finalState x)
@@ -219,7 +303,9 @@ lemma mergeVars_trace (maxNid : Nat) (e1 e2 : Exp) (env : Env) (x y : Nat)
         ((mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).initialState env)
         (((compileAux maxNid e1).1.finalState x) ⊕ ((compileAux (compileAux maxNid e1).2 e2).1.finalState y)) := by
   intro t1 t2
-  sorry
+  trans ((compileAux maxNid e1).1.finalState x) ⊕ (mergeVarsOverlappingState (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg env)
+  · sorry
+  · sorry
 
 lemma dfg_cons_non_input_initial_state (dfg : DFG) (node : Node)
   (h : node.isInput = false) : (DFG.initialState (node :: dfg) env) = dfg.initialState env := by
@@ -358,11 +444,13 @@ lemma mergeVars_non_output_nodes_not_ret
         · intro h; exact ih _ h h_not_output
         · intro h
           rename_i heq
-          have := List.mem_iff_get.mpr ⟨_, (List.get?_eq_some_iff.mp heq).snd⟩
+          have := List.mem_iff_get.mpr ⟨_, (List.getElem?_eq_some_iff.mp heq).snd⟩
           have := ih _ this (by simp)
           rw [h]
           exact this
-      · apply (List.mem_cons.mp h_mem').elim
+      · simp only [List.concat_eq_append, List.mem_append, List.mem_singleton] at h_mem'
+        apply h_mem'.elim
+        · intro h; exact ih _ h h_not_output
         · intro h
           rw [h]
           rw [h] at h_not_output
@@ -376,8 +464,9 @@ lemma mergeVars_non_output_nodes_not_ret
             by_contra h
             have := output_if_ret _ h_mem
             aesop
-        · intro h; exact ih _ h h_not_output
-    · apply (List.mem_cons.mp h_mem').elim
+    · simp only [List.concat_eq_append, List.mem_append, List.mem_singleton] at h_mem'
+      apply h_mem'.elim
+      · intro h; exact ih _ h h_not_output
       · intro h
         rw [h]
         rw [h] at h_not_output
@@ -391,7 +480,6 @@ lemma mergeVars_non_output_nodes_not_ret
           by_contra h
           have := output_if_ret _ h_mem
           aesop
-      · intro h; exact ih _ h h_not_output
 
 lemma mergeVars_to_compile_plus
   : (mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).MultiStep s1 s2
@@ -420,7 +508,7 @@ lemma mergeVars_to_compile_plus
           exists ⟨nid, .input var ports⟩
         · simp [newNode]
       · refine Eq.subst ?_ (Node.Step.input ?_)
-        · 
+        ·
           sorry
         · have := mergeVars_non_output_nodes_not_ret (port1 := 0) (port2 := 0) h_mem (by simp)
           have : nid ≠ (compileAux (compileAux maxNid e1).2 e2).2 := by

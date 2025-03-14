@@ -52,6 +52,23 @@ theorem Node.opTypeEq_refl {node : Node} : Node.opTypeEq node node := by
 
 abbrev DFG := List Node
 
+@[simp]
+def Node.mentionedNids : Node → List Nat
+  | ⟨nid, .input _ ports⟩ => nid :: ports.map Port.node
+  | ⟨nid, .output⟩ => [nid]
+  | ⟨nid, .binOp _ ports⟩ => nid :: ports.map Port.node
+
+@[simp]
+def DFG.Disjoint (dfg1 dfg2 : DFG) : Prop :=
+  ∀ node1 ∈ dfg1, ∀ node2 ∈ dfg2, node1.mentionedNids.Disjoint node2.mentionedNids
+
+@[simp]
+def DFG.varNames (dfg : DFG) : List String :=
+  dfg.filterMap λ node =>
+    match node with
+    | ⟨_, .input var _⟩ => some var
+    | _ => none
+
 -- Semantics
 abbrev State := Port → List Nat
 

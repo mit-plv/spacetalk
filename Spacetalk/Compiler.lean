@@ -9,22 +9,26 @@ structure MarkedDFG where
   dfg : DFG
   ret : Port
 
+@[simp]
+def sameVarInputIdx (dfg : DFG) (var : String) : Nat :=
+  dfg.findIdx
+    (λ node =>
+      match node with
+      | ⟨_, .input var' _⟩ => var' = var
+      | _ => false
+    )
+
 -- Merge consumers of input nodes that map to the same variable
 @[simp]
 def mergeVarsAux (dfg : DFG) (node : Node) : DFG :=
   match node with
   | ⟨_, .input var newPorts⟩ =>
-    let idx := dfg.findIdx
-      (λ node =>
-        match node with
-        | ⟨_, .input var' _⟩ => var' = var
-        | _ => false
-      )
-    match dfg.get? idx with
+    let idx := sameVarInputIdx dfg var
+    match dfg[idx]? with
     | some ⟨nid, .input var ports⟩ =>
       dfg.set idx ⟨nid, .input var (ports ++ newPorts)⟩
-    | _ => node :: dfg
-  | _ => node :: dfg
+    | _ => dfg.concat node
+  | _ => dfg.concat node
 
 @[simp]
 def mergeVars (g1 g2 : DFG) : DFG :=
