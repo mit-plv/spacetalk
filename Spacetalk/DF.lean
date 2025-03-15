@@ -35,6 +35,11 @@ def Node.isOutput : Node → Bool
   | _ => false
 
 @[simp]
+def Node.isOp : Node → Bool
+  | ⟨_, .binOp _ _⟩ => true
+  | _ => false
+
+@[simp]
 def Node.notOutput : Node → Bool
   | ⟨_, .output⟩ => false
   | _ => true
