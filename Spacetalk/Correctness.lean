@@ -29,6 +29,54 @@ namespace DF
   theorem State.empty_union_right {s : State} : s.union .empty = s := by
     aesop
 
+  @[simp]
+  def State.forwardPort (oldPort newPort : Port) (s : State) : State :=
+    λ p =>
+      if p = newPort then
+        s oldPort
+      else if p = oldPort then
+        []
+      else
+        s p
+
+  theorem State.forwardPort_eq {s : State}
+    : p ≠ oldPort → p ≠ newPort → s.forwardPort oldPort newPort p = s p := by
+    aesop
+
+  theorem State.forwardPort_pop_assoc {s : State}
+    : p ≠ oldPort → p ≠ newPort → s.forwardPort oldPort newPort ↤ p = (s ↤ p).forwardPort oldPort newPort := by
+    aesop
+
+  theorem State.forwardPort_push_assoc {s : State}
+    : p ≠ oldPort → p ≠ newPort → s.forwardPort oldPort newPort ↦ ⟨v, p⟩ = (s ↦ ⟨v, p⟩).forwardPort oldPort newPort := by
+    aesop
+
+  theorem State.forwardPort_push_newPort_oldPort {s : State}
+    : s.forwardPort oldPort newPort ↦ ⟨v, newPort⟩ = (s ↦ ⟨v, oldPort⟩).forwardPort oldPort newPort := by
+    aesop
+
+  theorem State.forwardPort_pushAll_assoc {s : State}
+    : (∀ p ∈ ports, p ≠ newRet) →
+      (s ↦↦ ⟨v, ports⟩).forwardPort oldRet newRet =
+      (s.forwardPort oldRet newRet) ↦↦ ⟨v, ports.map (fun p => if p = oldRet then newRet else p)⟩ := by
+    intro h_newRet
+    induction ports generalizing s with
+    | nil => rfl
+    | cons hd tl ih =>
+      simp only [pushAll, List.foldl_cons, List.map_cons]
+      funext p
+      split
+      next h_oldRet =>
+        simp only [pushAll] at ih
+        rw [h_oldRet]
+        rw [State.forwardPort_push_newPort_oldPort]
+        apply congr (ih _) rfl
+        simp_all
+      next h_oldRet =>
+        rw [s.forwardPort_push_assoc h_oldRet (h_newRet _ (by simp))]
+        apply congr (ih _) rfl
+        simp_all
+
   inductive DFG.Trace (dfg : DFG) : List Node → State → State → Prop
     | refl : DFG.Trace dfg [] s s
     | tail : DFG.Trace dfg nodes s1 s2
@@ -43,6 +91,29 @@ namespace DF
     | tail _ node h_mem tl ih =>
       apply Relation.ReflTransGen.tail ih
       exact .node node h_mem tl
+
+  @[refl]
+  theorem DFG.Trace.refl' {dfg : DFG} : dfg.Trace [] s s :=
+    .refl
+
+  theorem DFG.Trace.cons {node : Node} {dfg : DFG} : dfg.Trace nodes s1 s2 → DFG.Trace (node :: dfg) nodes s1 s2 := by
+    intro trace
+    induction trace with
+    | refl => rfl
+    | tail _ node h_mem tl ih =>
+      apply DFG.Trace.tail ih node _ tl
+      simp [h_mem]
+
+  theorem DFG.Trace.filter {dfg : DFG} {f : Node → Bool}
+    : dfg.Trace nodes s1 s2 → (∀ node ∈ nodes, f node = true) → DFG.Trace (dfg.filter f) nodes s1 s2 := by
+    intro trace h
+    induction trace with
+    | refl => rfl
+    | tail _ node h_mem tl ih =>
+      apply DFG.Trace.tail _ node _ tl
+      · apply ih
+        simp_all
+      · simp_all
 
   inductive DFG.Canonical (dfg : DFG) : State → State → Prop
     | mk : (s2 : State)
@@ -474,27 +545,44 @@ lemma plus_initial_state_eq_mergeVars : ((compileAux maxNid (e1.plus e2)).fst.in
   rw [updateReturn_initial_state]
   rw [updateReturn_initial_state]
 
-@[simp]
-def mergedState (dfg1 dfg2 : MarkedDFG) (nid : Nat) (s : State) : State :=
-  λ p =>
-    if p = ⟨nid, 0⟩ then
-      s dfg1.ret
-    else if p = ⟨nid, 1⟩ then
-      s dfg2.ret
-    else if p = dfg1.ret ∨ p = dfg2.ret then
-      []
-    else
-      s p
+lemma updateReturn_forward_trace {dfg : DFG}
+  : dfg.Trace nodes s1 s2
+    → (∀ node ∈ nodes, node.id ≠ ret.node ∧ node.id ≠ newRet.node)
+    → (updateReturn dfg ret newRet).Trace (updateReturn nodes ret newRet) (s1.forwardPort ret newRet) (s2.forwardPort ret newRet) := by
+  intro trace h_id
+  induction trace with
+  | refl =>
+    simp only [updateReturn, List.map_nil]
+    rfl
+  | tail _ node h_mem tl ih =>
+    simp only [updateReturn, List.map_concat]
+    apply DFG.Trace.tail (ih _) (updateReturnAux ret newRet node)
+    · apply List.mem_map.mpr
+      exists node
+    · have h_ret_ne := h_id node (by simp)
+      match node, tl with
+      | ⟨nid, .input var ports⟩, .input h =>
+        refine Eq.subst ?_ (Node.Step.input ?_)
+        · rename_i s2 _ _
+          have := s2.forwardPort_eq (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right)
+          simp_rw [this]
+          rw [State.forwardPort_pushAll_assoc sorry]
+          have := s2.forwardPort_pop_assoc (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right)
+          rw [this]
+        · aesop
+      | ⟨nid, .binOp _ ports⟩, .binOp h1 h2 => sorry
+    · sorry
 
-lemma merged_state_unchanged {s : State}
-  (h_nid1 : s ⟨nid, 0⟩ = []) (h_nid2 : s ⟨nid, 1⟩ = [])
-  (h_ret1 : s e1.ret = []) (h_ret2 : s e2.ret = [])
-  : (mergedState e1 e2 nid s) = s := by
+@[simp]
+abbrev MergedState (e1 e2 : Exp) (maxNid : Nat) (s : State) : State :=
+  let newNode := (compileAux (compileAux maxNid e1).2 e2).2
+  (State.forwardPort (compileAux (compileAux maxNid e1).2 e2).1.ret ⟨newNode, 1⟩) $
+  (State.forwardPort (compileAux maxNid e1).1.ret ⟨newNode, 0⟩) s
+
+lemma MergedState_union_assoc {e1 e2 : Exp} {maxNid : Nat} {s1 s2 : State}
+  : ((MergedState e1 e2 maxNid s1) ⊕ (MergedState e1 e2 maxNid s2)) =
+    (MergedState e1 e2 maxNid (s1 ⊕ s2)) := by
   aesop
-
-@[simp]
-abbrev MergedState (e1 e2 : Exp) (maxId : Nat) (s : State) : State :=
-  mergedState (compileAux maxId e1).1 (compileAux (compileAux maxId e1).2 e2).1 (compileAux (compileAux maxId e1).2 e2).2 s
 
 lemma mergeVars_non_output_nodes_not_ret
   (h_mem : node ∈ mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg)
@@ -558,49 +646,15 @@ lemma mergeVars_non_output_nodes_not_ret
           have := output_if_ret _ h_mem
           aesop
 
--- lemma mergeVars_to_compile_plus
---   : (mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg).MultiStep s1 s2
---     → (compileAux maxNid (e1.plus e2)).1.dfg.MultiStep (MergedState e1 e2 maxNid s1) (MergedState e1 e2 maxNid s2) := by
---   intro h
---   induction h with
---   | refl => rfl
---   | tail hd tl ih =>
---     apply Relation.ReflTransGen.tail ih
---     simp only [compileAux]
---     repeat apply dfg_step_cons
---     obtain ⟨node, h_mem, step⟩ := tl
---     match node, step with
---     | ⟨nid, .input var ports⟩, .input h =>
---       let newNode : Node :=
---         updateReturnAux (compileAux (compileAux maxNid e1).2 e2).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 1⟩
---         (updateReturnAux (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩ ⟨nid, .input var ports⟩)
---       simp only [mergeTwo]
---       apply DFG.Step.node newNode
---       · apply List.mem_filter.mpr
---         apply And.intro
---         · apply List.mem_map.mpr
---           exists updateReturnAux (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩ ⟨nid, .input var ports⟩
---           apply And.intro _ rfl
---           apply List.mem_map.mpr
---           exists ⟨nid, .input var ports⟩
---         · simp [newNode]
---       · refine Eq.subst ?_ (Node.Step.input ?_)
---         ·
---           sorry
---         · have := mergeVars_non_output_nodes_not_ret (port1 := 0) (port2 := 0) h_mem (by simp)
---           have : nid ≠ (compileAux (compileAux maxNid e1).2 e2).2 := by
---             apply (mergeVars_nid_in_original _ h_mem).elim
---             <;>
---              (intro h
---               obtain ⟨node, ⟨h_mem, h_nid⟩⟩ := h
---               simp only at h_nid
---               rw [h_nid]
---               have := nid_lt_new_maxNid _ h_mem
---               have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
---               omega)
---           simp_all
---     | ⟨nid, .binOp op ports⟩, .binOp h1 h2 =>
---       sorry
+lemma updateReturn_append_assoc
+  : ((updateReturn dfg1 oldPort newPort) ++ (updateReturn dfg2 oldPort newPort)) =
+    (updateReturn (dfg1 ++ dfg2) oldPort newPort) := by
+  aesop
+
+lemma mergeVars_ops_step_merge {dfg1 dfg2 : DFG}
+  : dfg1.Trace nodes1 s1 s2 → dfg2.Trace nodes2 s3 s4 → (∀ node ∈ nodes1, node.isOp = true) → (∀ node ∈ nodes2, node.isOp = true)
+   → (mergeVars dfg1 dfg2).Trace (nodes1 ++ nodes2) (s1 ⊕ s3) (s2 ⊕ s4) :=
+  sorry
 
 theorem compile_canonical_trace (eval : Eval env e v)
   : (compileAux maxNid e).1.dfg.Canonical ((compileAux maxNid e).1.initialState env) ((compileAux maxNid e).1.finalState v) := by
@@ -619,17 +673,37 @@ theorem compile_canonical_trace (eval : Eval env e v)
     cases eval
     rename_i x y eval1 eval2
     have ⟨e1_s2, e1_t1, e1_t2, h_e1_inp, h_e1_op⟩ := compile_canonical_trace eval1 (maxNid := maxNid)
-    have ⟨e2_s2, e2_t1, e2_t2, h_e2_inp, h_e2_op⟩ := compile_canonical_trace eval2 (maxNid := (compileAux (compileAux maxNid e1).2 e2).2)
+    have ⟨e2_s2, e2_t1, e2_t2, h_e2_inp, h_e2_op⟩ := compile_canonical_trace eval2 (maxNid := (compileAux maxNid e1).2)
     rename_i e1_inp e1_op e2_inp e2_op
     apply DFG.Canonical.mk ((MergedState e1 e2 maxNid e1_s2) ⊕ (MergedState e1 e2 maxNid e2_s2))
     · sorry
     · apply DFG.Trace.tail
-        (nodes := e1_op ++ e2_op)
+        (nodes :=
+          (updateReturn (updateReturn e1_op (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩) (compileAux (compileAux maxNid e1).2 e2).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 1⟩) ++
+          (updateReturn (updateReturn e2_op (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩) (compileAux (compileAux maxNid e1).2 e2).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 1⟩))
         (s2 := ((MergedState e1 e2 maxNid ((compileAux maxNid e1).1.finalState x)) ⊕
                 (MergedState e1 e2 maxNid ((compileAux (compileAux maxNid e1).2 e2).1.finalState y))))
         (node := ⟨(compileAux (compileAux maxNid e1).2 e2).2, .binOp .plus [⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, 0⟩]⟩)
-      · 
-        sorry
+      · repeat apply DFG.Trace.cons
+        simp only [mergeTwo, removeOutputNodes]
+        apply DFG.Trace.filter
+        · repeat rw [MergedState_union_assoc]
+          repeat rw [updateReturn_append_assoc]
+          apply updateReturn_forward_trace
+          · apply updateReturn_forward_trace
+            · exact mergeVars_ops_step_merge e1_t2 e2_t2 h_e1_op h_e2_op
+            · sorry
+          · sorry
+        · intro node h_mem
+          apply (List.mem_append.mp h_mem).elim
+          <;>
+           (intro h_mem
+            suffices h : node.isOp = true by
+              obtain ⟨nid, op⟩ := node
+              cases op <;> simp_all)
+          on_goal 1 => apply h_e1_op
+          on_goal 2 => apply h_e2_op
+          all_goals sorry
       · simp
       · refine Eq.subst ?_ (Node.Step.binOp ?_ ?_)
         have : (compileAux (compileAux maxNid e1).2 e2).1.ret ≠ (compileAux maxNid e1).1.ret := by
@@ -637,84 +711,11 @@ theorem compile_canonical_trace (eval : Eval env e v)
           have := @ret_lt_new_maxNid maxNid e1
           have := @maxNid_lt_ret (compileAux maxNid e1).2 e2
           omega
-        · simp only [State.pushAll, BinOp.denote, State.union, MergedState, mergedState, ↓reduceIte,
-            MarkedDFG.finalState, State.push, State.empty, List.concat_eq_append, List.nil_append,
-            List.cons_append, List.head_cons, Port.mk.injEq, Nat.succ_ne_self, and_false, this,
-            List.foldl_cons, List.foldl_nil]
-          -- aesop?
-          simp_all only [MarkedDFG.initialState, DFG.initialState, MarkedDFG.finalState, Node.isInput, Node.isOp,
-            ne_eq]
-          ext x_1 i a : 3
-          simp_all only [State.push, State.pop, Port.mk.injEq, Nat.succ_ne_self, Nat.zero_ne_one, and_self,
-            ↓reduceIte, and_true, State.union, mergedState, State.empty, List.concat_eq_append, List.nil_append,
-            List.append_assoc, and_false, List.tail_cons, List.cons_append, Option.mem_def]
-          apply Iff.intro
-          · intro a_1
-            split
-            next h =>
-              subst h
-              simp_all only [↓reduceIte]
-              split at a_1
-              next h => simp_all only [List.nil_append]
-              next h =>
-                split at a_1
-                next h_1 =>
-                  split at a_1
-                  next h_2 => simp_all only [true_or, not_true_eq_false]
-                  next h_2 => simp_all only [true_or, not_true_eq_false]
-                next h_1 =>
-                  split at a_1
-                  next h_2 => simp_all only [or_true, not_true_eq_false]
-                  next h_2 => simp_all only [or_self, not_false_eq_true, List.nil_append]
-            next h =>
-              simp_all only [↓reduceIte, List.getElem?_nil, reduceCtorEq]
-              split at a_1
-              next h_1 =>
-                subst h_1
-                simp_all only [List.getElem?_nil, reduceCtorEq]
-              next h_1 =>
-                split at a_1
-                next h_2 =>
-                  split at a_1
-                  next h_3 =>
-                    subst h_2
-                    simp_all only [not_true_eq_false]
-                  next h_3 =>
-                    subst h_2
-                    simp_all only [List.getElem?_nil, reduceCtorEq]
-                next h_2 =>
-                  split at a_1
-                  next h_3 => simp_all only [List.append_nil, List.getElem?_nil, reduceCtorEq]
-                  next h_3 =>
-                    split at a_1
-                    next h_4 =>
-                      split at a_1
-                      next h_5 =>
-                        subst h_4
-                        simp_all only [not_true_eq_false]
-                      next h_5 =>
-                        subst h_4
-                        simp_all only [List.append_nil, or_false, not_true_eq_false]
-                    next h_4 =>
-                      split at a_1
-                      next h_5 =>
-                        subst h_5
-                        simp_all only [not_false_eq_true, List.nil_append, or_true, not_true_eq_false]
-                      next h_5 =>
-                        simp_all only [or_self, not_false_eq_true, List.append_nil, List.getElem?_nil, reduceCtorEq]
-          · intro a_1
-            split
-            next h =>
-              subst h
-              simp_all only [↓reduceIte]
-              split
-              next h => simp_all only [List.nil_append]
-              next h => simp_all only [not_or, ↓reduceIte, List.nil_append]
-            next h => simp_all only [↓reduceIte, List.getElem?_nil, reduceCtorEq]
-        · aesop
-        · aesop
+        · sorry
+        · sorry
+        · sorry
     · sorry
-    · aesop
+    · sorry
     all_goals sorry
 
 theorem compile_value_correct (eval : Eval env e v)
