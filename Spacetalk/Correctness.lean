@@ -547,7 +547,7 @@ lemma plus_initial_state_eq_mergeVars : ((compileAux maxNid (e1.plus e2)).fst.in
 
 lemma updateReturn_forward_trace {dfg : DFG}
   : dfg.Trace nodes s1 s2
-    → (∀ node ∈ nodes, node.id ≠ ret.node ∧ node.id ≠ newRet.node)
+    → (∀ node ∈ nodes, node.id ≠ ret.node ∧ node.id ≠ newRet.node ∧ ∀ port ∈ node.consumers, port ≠ newRet)
     → (updateReturn dfg ret newRet).Trace (updateReturn nodes ret newRet) (s1.forwardPort ret newRet) (s2.forwardPort ret newRet) := by
   intro trace h_id
   induction trace with
@@ -564,14 +564,79 @@ lemma updateReturn_forward_trace {dfg : DFG}
       | ⟨nid, .input var ports⟩, .input h =>
         refine Eq.subst ?_ (Node.Step.input ?_)
         · rename_i s2 _ _
-          have := s2.forwardPort_eq (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right)
+          have := s2.forwardPort_eq (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right.left)
           simp_rw [this]
-          rw [State.forwardPort_pushAll_assoc sorry]
-          have := s2.forwardPort_pop_assoc (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right)
-          rw [this]
-        · aesop
-      | ⟨nid, .binOp _ ports⟩, .binOp h1 h2 => sorry
-    · sorry
+          rw [State.forwardPort_pushAll_assoc _]
+          · have := s2.forwardPort_pop_assoc (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right.left)
+            rw [this]
+          · exact h_ret_ne.right.right
+        · -- aesop?
+          simp_all only [ne_eq, List.concat_eq_append, List.mem_append, List.mem_cons, List.not_mem_nil, or_false,
+            true_or, not_false_eq_true, Node.consumers, true_and, updateReturn, State.forwardPort]
+          obtain ⟨left, right⟩ := h_ret_ne
+          obtain ⟨left_1, right⟩ := right
+          apply Aesop.BuiltinRules.not_intro
+          intro a_1
+          split at a_1
+          next h_1 =>
+            subst h_1
+            simp_all only [not_true_eq_false]
+          next h_1 =>
+            split at a_1
+            next h_2 =>
+              subst h_2
+              simp_all only [not_true_eq_false]
+            next h_2 => simp_all only [not_true_eq_false]
+      | ⟨nid, .binOp _ ports⟩, .binOp h1 h2 =>
+        refine Eq.subst ?_ (Node.Step.binOp ?_ ?_)
+        · rename_i s2 _ _ _
+          have := s2.forwardPort_eq (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right.left)
+          simp_rw [this]
+          have := s2.forwardPort_eq (p := ⟨nid, 1⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right.left)
+          simp_rw [this]
+          rw [State.forwardPort_pushAll_assoc _]
+          · have := (s2 ↤ ⟨nid, 0⟩).forwardPort_pop_assoc (p := ⟨nid, 1⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right.left)
+            rw [←this]
+            have := s2.forwardPort_pop_assoc (p := ⟨nid, 0⟩) (Port.node_ne h_ret_ne.left) (Port.node_ne h_ret_ne.right.left)
+            rw [←this]
+          · exact h_ret_ne.right.right
+        · -- aesop?
+          simp_all only [ne_eq, List.concat_eq_append, List.mem_append, List.mem_cons, List.not_mem_nil, or_false,
+            true_or, not_false_eq_true, Node.consumers, true_and, updateReturn, State.forwardPort]
+          obtain ⟨left, right⟩ := h_ret_ne
+          obtain ⟨left_1, right⟩ := right
+          apply Aesop.BuiltinRules.not_intro
+          intro a_2
+          split at a_2
+          next h =>
+            subst h
+            simp_all only [not_true_eq_false]
+          next h =>
+            split at a_2
+            next h_1 =>
+              subst h_1
+              simp_all only [not_true_eq_false]
+            next h_1 => simp_all only [not_true_eq_false]
+        · -- aesop?
+          simp_all only [ne_eq, List.concat_eq_append, List.mem_append, List.mem_cons, List.not_mem_nil, or_false,
+            true_or, not_false_eq_true, Node.consumers, true_and, updateReturn, State.forwardPort]
+          obtain ⟨left, right⟩ := h_ret_ne
+          obtain ⟨left_1, right⟩ := right
+          apply Aesop.BuiltinRules.not_intro
+          intro a_2
+          split at a_2
+          next h =>
+            subst h
+            simp_all only [not_true_eq_false]
+          next h =>
+            split at a_2
+            next h_1 =>
+              subst h_1
+              simp_all only [not_true_eq_false]
+            next h_1 => simp_all only [not_true_eq_false]
+    · intro node h_mem
+      apply h_id
+      simp_all
 
 @[simp]
 abbrev MergedState (e1 e2 : Exp) (maxNid : Nat) (s : State) : State :=

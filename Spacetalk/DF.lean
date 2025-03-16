@@ -51,21 +51,27 @@ def Node.opTypeEq : Node → Node → Bool
   | ⟨_, .binOp _ _⟩, ⟨_, .binOp _ _⟩ => true
   | _, _ => false
 
+@[simp]
+def Node.consumers : Node → List Port
+  | ⟨_, .input _ ports⟩
+  | ⟨_, .binOp _ ports⟩ => ports
+  | _ => []
+
 theorem Node.opTypeEq_refl {node : Node} : Node.opTypeEq node node := by
   obtain ⟨nid, op⟩ := node
   cases op <;> rfl
 
 abbrev DFG := List Node
 
-@[simp]
-def Node.mentionedNids : Node → List Nat
-  | ⟨nid, .input _ ports⟩ => nid :: ports.map Port.node
-  | ⟨nid, .output⟩ => [nid]
-  | ⟨nid, .binOp _ ports⟩ => nid :: ports.map Port.node
+-- @[simp]
+-- def Node.mentionedNids : Node → List Nat
+--   | ⟨nid, .input _ ports⟩ => nid :: ports.map Port.node
+--   | ⟨nid, .output⟩ => [nid]
+--   | ⟨nid, .binOp _ ports⟩ => nid :: ports.map Port.node
 
-@[simp]
-def DFG.Disjoint (dfg1 dfg2 : DFG) : Prop :=
-  ∀ node1 ∈ dfg1, ∀ node2 ∈ dfg2, node1.mentionedNids.Disjoint node2.mentionedNids
+-- @[simp]
+-- def DFG.Disjoint (dfg1 dfg2 : DFG) : Prop :=
+--   ∀ node1 ∈ dfg1, ∀ node2 ∈ dfg2, node1.mentionedNids.Disjoint node2.mentionedNids
 
 @[simp]
 def DFG.varNames (dfg : DFG) : List String :=
