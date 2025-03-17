@@ -581,7 +581,91 @@ lemma mergeVars_maintains_op_type
 
 lemma mergeVars_consumer_in_original
   : ∀ node ∈ mergeVars dfg1 dfg2, ∀ port ∈ node.consumers, (∃ node1 ∈ dfg1, port ∈ node1.consumers) ∨ (∃ node2 ∈ dfg2, port ∈ node2.consumers) := by
-  sorry
+  induction dfg2 generalizing dfg1 with
+  | nil =>
+    -- aesop?
+    intro node a port a_1
+    simp_all only [mergeVars, List.foldl_nil, Node.consumers, List.not_mem_nil, false_and, exists_false, or_false]
+    split at a_1
+    next x id a_2 ports =>
+      apply Exists.intro
+      · apply And.intro
+        · exact a
+        · simp_all only
+    next x id a_2 ports =>
+      apply Exists.intro
+      · apply And.intro
+        · exact a
+        · simp_all only
+    next x x_1 x_2 => simp_all only [imp_false, List.not_mem_nil]
+  | cons hd tl ih =>
+    have ih_concat : ∀ {hd}, ∀ node ∈ List.foldl mergeVarsAux (dfg1 ++ [hd]) tl, ∀ port ∈ node.consumers,
+                        (∃ node1 ∈ dfg1, port ∈ node1.consumers) ∨ ∃ node2 ∈ hd :: tl, port ∈ node2.consumers := by
+      intro _ node h_mem port h_mem_port
+      apply (ih _ h_mem _ h_mem_port).elim
+      · intro h
+        obtain ⟨node, ⟨h_mem_node, h_mem_port⟩⟩ := h
+        simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at h_mem_node
+        apply h_mem_node.elim
+        · intro h
+          apply Or.intro_left
+          exists node
+        · intro h
+          apply Or.intro_right
+          exists node
+          rw [h]
+          apply And.intro
+          · simp only [List.mem_cons, true_or]
+          · exact h ▸ h_mem_port
+      · intro h
+        obtain ⟨node, ⟨h_mem_node, h_mem_port⟩⟩ := h
+        apply Or.intro_right
+        exists node
+        apply And.intro _ h_mem_port
+        simp_all only [List.mem_cons, or_true]
+    intro node h_mem port h_mem_port
+    simp only [mergeVars, List.foldl_cons, mergeVarsAux, sameVarInputIdx,
+      List.concat_eq_append] at h_mem
+    cases h_hd : hd
+    rename_i nid op
+    cases h_op : op
+    on_goal 1 =>
+      rename_i var ports
+      simp only [h_hd, h_op] at h_mem
+      split at h_mem
+      · apply (ih _ h_mem _ h_mem_port).elim
+        · intro h
+          obtain ⟨node1, ⟨h_mem1, h_mem_port1⟩⟩ := h
+          apply (List.mem_or_eq_of_mem_set h_mem1).elim
+          · intro h
+            apply Or.intro_left
+            exists node1
+          · intro h
+            rw [h] at h_mem_port1
+            simp only [Node.consumers, List.mem_append] at h_mem_port1
+            apply h_mem_port1.elim
+            · intro
+              rename_i nid var ports heq _
+              apply Or.intro_left
+              have := List.mem_of_getElem? heq
+              exists ⟨nid, .input var ports⟩
+            · intro h
+              rw [h_op] at h_hd
+              apply Or.intro_right
+              exists hd
+              rw [h_hd]
+              apply And.intro _ h
+              simp only [List.mem_cons, true_or]
+        · intro h
+          obtain ⟨node2, ⟨h_mem2, h_mem_port2⟩⟩ := h
+          apply Or.intro_right
+          exists node2
+          apply And.intro _ h_mem_port2
+          simp_all only [List.mem_cons, or_true]
+      · exact ih_concat _ h_mem _ h_mem_port
+    all_goals
+     (simp only [h_hd, h_op] at h_mem
+      exact ih_concat _ h_mem _ h_mem_port)
 
 lemma mergeVars_consumer_in_dfg
   : ∀ node ∈ mergeVars dfg1 dfg2, ∀ port ∈ node.consumers, ∃ node ∈ mergeVars dfg1 dfg2, node.id = port.node := by
