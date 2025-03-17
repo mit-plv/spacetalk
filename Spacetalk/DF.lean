@@ -44,7 +44,10 @@ def Node.notOutput : Node → Bool
   | ⟨_, .output⟩ => false
   | _ => true
 
-def Node.op_ne_output {node : Node} : node.isOp = true → node.isOutput = true → False := by
+theorem Node.op_ne_output {node : Node} : node.isOp = true → node.isOutput = true → False := by
+  aesop
+
+theorem Node.false_of_output_and_not_output {node : Node} : node.isOutput = true → node.notOutput = true → False := by
   aesop
 
 @[simp]
@@ -54,11 +57,21 @@ def Node.opTypeEq : Node → Node → Bool
   | ⟨_, .binOp _ _⟩, ⟨_, .binOp _ _⟩ => true
   | _, _ => false
 
+theorem Node.opTypeEq.symm {node1 node2 : Node} : node1.opTypeEq node2 → node2.opTypeEq node1 := by
+  intro h
+  obtain ⟨nid1, op1⟩ := node1
+  obtain ⟨nid2, op2⟩ := node2
+  cases op1 <;> cases op2 <;> simp_all
+
 @[simp]
 def Node.consumers : Node → List Port
   | ⟨_, .input _ ports⟩
   | ⟨_, .binOp _ ports⟩ => ports
   | _ => []
+
+theorem Node.output_of_opTypeEq {node1 node2 : Node}
+  : node1.opTypeEq node2 → node1.isOutput = true → node2.isOutput = true := by
+  aesop
 
 theorem Node.opTypeEq_refl {node : Node} : Node.opTypeEq node node := by
   obtain ⟨nid, op⟩ := node

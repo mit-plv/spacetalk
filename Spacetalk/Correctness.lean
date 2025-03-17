@@ -295,6 +295,35 @@ lemma output_if_ret
            omega)
     aesop
 
+lemma ret_if_output
+  : ∀ node ∈ (compileAux maxNid e).1.dfg, node.isOutput = true → node.id = (compileAux maxNid e).1.ret.node := by
+  cases e with
+  | var =>
+    -- aesop?
+    intro node a_1 a_2
+    simp_all only [compileAux, List.mem_cons, List.not_mem_nil, or_false, Node.isOutput]
+    cases a_1 with
+    | inl h =>
+      subst h
+      simp_all only [Bool.false_eq_true]
+    | inr h_1 =>
+      subst h_1
+      simp_all only
+  | plus e1 e2 =>
+    intro node h_mem h_output
+    simp only [compileAux, List.mem_cons] at h_mem
+    cases h_mem with
+    | inl h => simp_all only [Node.isOutput, Bool.false_eq_true]
+    | inr h_mem =>
+      cases h_mem with
+      | inl h =>
+        simp only [h, compileAux, mergeTwo, removeOutputNodes, updateReturn, mergeVars,
+          List.map_map]
+      | inr h =>
+        have ⟨_, h_not_output⟩ := List.mem_filter.mp h
+        exfalso
+        exact Node.false_of_output_and_not_output h_output h_not_output
+
 -- lemma mergeVars_nid_unique {dfg1 dfg2 : DFG}
 --   (h1 : ∀ node1 ∈ dfg1, ∀ node2 ∈ dfg1, node1.id = node2.id → node1 = node2)
 --   (h2 : ∀ node1 ∈ dfg2, ∀ node2 ∈ dfg2, node1.id = node2.id → node1 = node2)
@@ -488,34 +517,6 @@ lemma output_if_ret
 --       sorry
 --     · sorry
 
-lemma consumer_in_dfg : ∀ node ∈ (compileAux maxNid e).1.dfg, ∀ port ∈ node.consumers, ∃ node ∈ (compileAux maxNid e).1.dfg, node.id = port.node := by
-  intro node h_mem_node port h_mem_port
-  cases e with
-  | var => aesop
-  | plus e1 e2 =>
-    simp only [compileAux]
-    simp only [compileAux, removeOutputNodes, updateReturn, mergeVars, List.map_map,
-      List.mem_cons, List.mem_filter, List.mem_map, Function.comp_apply, updateReturnAux,
-      Node.notOutput] at h_mem_node
-    apply h_mem_node.elim
-    · intro h
-      exists ⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, .output⟩
-      apply And.intro <;> simp_all
-    · intro h
-      apply h.elim
-      · intro h
-        simp_all
-      · intro h
-        simp only [mergeTwo] at h
-        have ⟨h_mem, h_not_output⟩ := List.mem_filter.mp h
-        repeat
-         (have ⟨node, ⟨h_mem, h_eq⟩⟩ := List.mem_map.mp h_mem
-          rw [←h_eq] at h_mem_port)
-        have ih1 := @consumer_in_dfg maxNid e1
-        have ih2 := @consumer_in_dfg (compileAux maxNid e1).2 e2
-
-        sorry
-
 lemma initial_state_node_eq {dfg : DFG}
   : ∀ p, dfg.initialState env p ≠ [] → ∃ node ∈ dfg, node.id = p.node ∧ node.isInput = true := by
   intro p h
@@ -577,6 +578,268 @@ lemma mergeVars_maintains_op_type
         exists node
         apply And.intro h_mem
         exact And.intro (by rw [h]) (h ▸ Node.opTypeEq_refl)
+
+lemma mergeVars_consumer_in_original
+  : ∀ node ∈ mergeVars dfg1 dfg2, ∀ port ∈ node.consumers, (∃ node1 ∈ dfg1, port ∈ node1.consumers) ∨ (∃ node2 ∈ dfg2, port ∈ node2.consumers) := by
+  sorry
+
+lemma mergeVars_consumer_in_dfg
+  : ∀ node ∈ mergeVars dfg1 dfg2, ∀ port ∈ node.consumers, ∃ node ∈ mergeVars dfg1 dfg2, node.id = port.node := by
+  sorry
+
+mutual
+  theorem port_eq_ret_of_node_eq
+    : ∀ node ∈ (compileAux maxNid e).1.dfg, ∀ port ∈ node.consumers, port.node = (compileAux maxNid e).1.ret.node → port = (compileAux maxNid e).1.ret := by
+    intro node h_mem_node port h_mem_port h_eq
+    cases e with
+    | var =>
+    -- aesop?
+      simp_all only [Node.consumers, compileAux, List.mem_cons, List.not_mem_nil, or_false]
+      cases h_mem_node with
+      | inl h =>
+        subst h
+        simp_all only [List.mem_cons, List.not_mem_nil, or_false]
+      | inr h_1 =>
+        subst h_1
+        simp_all only [List.not_mem_nil]
+    | plus e1 e2 =>
+      simp at h_eq
+      simp only [compileAux, List.mem_cons] at h_mem_node
+      cases h_mem_node with
+      | inl h =>
+        -- aesop?
+        subst h
+        simp_all only [Node.consumers, List.mem_cons, List.not_mem_nil, or_false, compileAux, mergeTwo,
+          removeOutputNodes, updateReturn, mergeVars, List.map_map]
+      | inr h =>
+        cases h with
+        | inl h =>
+          -- aesop?
+          subst h
+          simp_all only [Node.consumers, List.not_mem_nil]
+        | inr h_mem =>
+          match node with
+          | ⟨_, .input _ ports⟩
+          | ⟨_, .binOp _ ports⟩ =>
+            simp only [mergeTwo, removeOutputNodes, List.mem_filter] at h_mem
+            have ⟨h_mem, _⟩ := h_mem
+            simp only [updateReturn, List.map_map, List.mem_map, Function.comp_apply] at h_mem
+            obtain ⟨node1, ⟨h_mem1, h_eq⟩⟩ := h_mem
+            simp only [updateReturnAux] at h_eq
+            obtain ⟨nid1, op1⟩ := node1
+            cases op1
+            all_goals simp only [List.map_map, Node.mk.injEq, reduceCtorEq, and_false] at h_eq
+            obtain ⟨h_id_eq, h_op⟩ := h_eq
+            rename_i ports1
+            simp only [NodeOp.input.injEq, NodeOp.binOp.injEq] at h_op
+            obtain ⟨_, h_port⟩ := h_op
+            simp only [Node.consumers] at h_mem_port
+            rw [←h_port] at h_mem_port
+            simp only [List.mem_map, Function.comp_apply] at h_mem_port
+            obtain ⟨port', ⟨h_mem', h_eq_port'⟩⟩ := h_mem_port
+            split at h_eq_port'
+            · aesop
+            · split at h_eq_port'
+              · aesop
+              · apply (mergeVars_consumer_in_original _ h_mem1 _ h_mem').elim
+                all_goals
+                 (intro h
+                  obtain ⟨node', ⟨h_mem_node', h_mem_port_node'⟩⟩ := h
+                  obtain ⟨node, ⟨h_mem', h_eq'⟩⟩ := consumer_in_dfg _ h_mem_node' _ h_mem_port_node'
+                  rw [h_eq_port'] at h_eq'
+                  rw [h_eq] at h_eq'
+                  have := nid_lt_new_maxNid _ h_mem'
+                  have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+                  omega)
+
+  theorem consumer_in_dfg : ∀ node ∈ (compileAux maxNid e).1.dfg, ∀ port ∈ node.consumers, ∃ node ∈ (compileAux maxNid e).1.dfg, node.id = port.node := by
+    intro node h_mem_node port h_mem_port
+    cases e with
+    | var =>
+      -- aesop?
+      simp_all only [Node.consumers, compileAux, List.mem_cons, List.not_mem_nil, or_false, exists_eq_or_imp,
+        exists_eq_left]
+      cases h_mem_node with
+      | inl h =>
+        subst h
+        simp_all only [List.mem_cons, List.not_mem_nil, or_false, Nat.self_eq_add_right, Nat.succ_ne_self, or_true]
+      | inr h_1 =>
+        subst h_1
+        simp_all only [List.not_mem_nil]
+    | plus e1 e2 =>
+      simp only [compileAux]
+      simp only [compileAux, removeOutputNodes, updateReturn, mergeVars, List.map_map,
+        List.mem_cons, List.mem_filter, List.mem_map, Function.comp_apply, updateReturnAux,
+        Node.notOutput] at h_mem_node
+      apply h_mem_node.elim
+      · intro h
+        exists ⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, .output⟩
+        apply And.intro <;> simp_all
+      · intro h
+        apply h.elim
+        · intro h
+          simp_all
+        · intro h
+          simp only [mergeTwo] at h
+          have ⟨h_mem, h_not_output⟩ := List.mem_filter.mp h
+          repeat (have ⟨node, ⟨h_mem, h_eq⟩⟩ := List.mem_map.mp h_mem; rw [←h_eq] at h_mem_port)
+          clear * - consumer_in_dfg port_eq_ret_of_node_eq h_mem h_mem_port
+          obtain ⟨nid, op⟩ := node
+          match op with
+          | .input _ ports
+          | .binOp _ ports =>
+            simp only [Node.consumers, updateReturnAux, List.map_map, List.mem_map,
+              Function.comp_apply] at h_mem_port
+            obtain ⟨port, heq⟩ := h_mem_port
+            split at heq
+            · -- aesop?
+              rename_i h
+              subst h
+              simp_all only [mergeVars, mergeTwo, removeOutputNodes, updateReturn, List.map_map, List.mem_cons,
+                List.mem_filter, List.mem_map, Function.comp_apply, updateReturnAux, Node.notOutput, exists_eq_or_imp]
+              obtain ⟨left, right⟩ := heq
+              subst right
+              split
+              next h => simp_all only [Nat.succ_ne_self, false_or, true_or]
+              next h => simp_all only [Nat.succ_ne_self, false_or, true_or]
+            · split at heq
+              · -- aesop?
+                rename_i h_1
+                subst h_1
+                simp_all only [mergeVars, mergeTwo, removeOutputNodes, updateReturn, List.map_map, List.mem_cons,
+                  List.mem_filter, List.mem_map, Function.comp_apply, updateReturnAux, Node.notOutput, exists_eq_or_imp]
+                obtain ⟨left, right⟩ := heq
+                subst right
+                simp_all only [Nat.succ_ne_self, false_or, true_or]
+              · obtain ⟨h_mem_port, heq⟩ := heq
+                rw [←heq]
+                obtain ⟨node, ⟨h_mem_node, h_id_eq⟩⟩ := mergeVars_consumer_in_dfg _ h_mem port h_mem_port
+                exists
+                  updateReturnAux (compileAux (compileAux maxNid e1).2 e2).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 1⟩
+                  (updateReturnAux (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩ node)
+                apply And.intro
+                · repeat apply List.mem_cons.mpr (Or.intro_right _ _)
+                  simp only [mergeTwo]
+                  apply List.mem_filter.mpr
+                  apply And.intro
+                  · -- aesop?
+                    subst heq
+                    simp_all only [mergeVars, updateReturn, List.map_map, updateReturnAux, List.mem_map,
+                      Function.comp_apply, Node.mk.injEq]
+                    split
+                    rename_i x var_1 ports_1 heq
+                    split at heq
+                    rename_i x_1 var_2 ports_2 heq_1
+                    simp_all only [NodeOp.input.injEq]
+                    obtain ⟨left, right⟩ := heq
+                    subst left right
+                    simp_all only [List.map_map]
+                    apply Exists.intro
+                    apply And.intro
+                    on_goal 6 => rename_i x heq
+                    on_goal 7 => rename_i x op_1 ports_1 heq
+                    on_goal 4 => rename_i x_1 heq_1
+                    on_goal 5 => rename_i x_1 op_1 ports_2 heq_1
+                    on_goal 2 => apply And.intro
+                    on_goal 2 => {exact h_id_eq
+                    }
+                    · simp_all only
+                    · simp_all only [List.map_map]
+                    simp_all only [reduceCtorEq]
+                    simp_all only [reduceCtorEq]
+                    split at heq
+                    next x_1 var_1 ports_1 heq_1 => simp_all only [reduceCtorEq]
+                    rename_i x_1 heq_1
+                    simp_all only
+                    apply Exists.intro
+                    apply And.intro
+                    on_goal 4 => rename_i x_1 op_1 ports_1 heq_1
+                    on_goal 2 => apply And.intro
+                    on_goal 3 => split
+                    on_goal 3 => rename_i x_2 var_1 ports_1 heq
+                    on_goal 4 => rename_i x_2 heq
+                    on_goal 5 => rename_i x_2 op_1 ports_1 heq
+                    on_goal 4 => rfl
+                    on_goal 2 => {exact h_id_eq
+                    }
+                    · simp_all only
+                    simp_all only [reduceCtorEq]
+                    simp_all only [reduceCtorEq]
+                    simp_all only [reduceCtorEq]
+                    split at heq
+                    next x_1 var_1 ports_2 heq_1 => simp_all only [reduceCtorEq]
+                    next x_1 heq_1 => simp_all only [reduceCtorEq]
+                    next x_1 op_2 ports_2 heq_1 =>
+                      simp_all only [NodeOp.binOp.injEq, true_and]
+                      subst heq
+                      simp_all only [List.map_map]
+                      apply Exists.intro
+                      · apply And.intro
+                        on_goal 2 => apply And.intro
+                        on_goal 2 => {exact h_id_eq
+                        }
+                        · simp_all only
+                        · simp_all only [List.map_map]
+                  · have : node.op ≠ .output := by
+                      by_contra h_output
+                      apply (mergeVars_maintains_op_type _ h_mem_node).elim
+                      all_goals
+                       (intro h
+                        obtain ⟨node', ⟨h_mem', ⟨h_id, h_op⟩⟩⟩ := h
+                        apply (mergeVars_consumer_in_original _ h_mem _ h_mem_port).elim
+                        all_goals first
+                          |
+                           (intro h
+                            obtain ⟨node1, ⟨h_mem_node1, h_mem_port1⟩⟩ := h
+                            have : node'.isOutput = true := Node.output_of_opTypeEq (Node.opTypeEq.symm h_op)
+                              (by
+                                obtain ⟨nid, op⟩ := node
+                                cases op <;> simp_all)
+                            have := ret_if_output _ h_mem' this
+                            rw [this] at h_id
+                            rw [←h_id] at h_id_eq
+                            have := port_eq_ret_of_node_eq _ h_mem_node1 _ h_mem_port1 h_id_eq.symm
+                            contradiction)
+                          |
+                           (intro h
+                            obtain ⟨node1, ⟨h_mem_node1, h_mem_port1⟩⟩ := h
+                            have ⟨node1, ⟨h_mem_node1, h_eq1⟩⟩ := consumer_in_dfg _ h_mem_node1 _ h_mem_port1
+                            rw [←h_eq1] at h_id_eq
+                            rw [h_id_eq] at h_id
+                            have := nid_lt_new_maxNid _ h_mem'
+                            have := maxNid_le_nid _ h_mem_node1
+                            have := maxNid_le_nid _ h_mem'
+                            have := nid_lt_new_maxNid _ h_mem_node1
+                            omega))
+                    -- aesop?
+                    subst heq
+                    simp_all only [mergeVars, ne_eq, Node.notOutput, updateReturnAux]
+                    split
+                    next x id heq =>
+                      simp_all only [Node.mk.injEq, Bool.false_eq_true]
+                      subst h_id_eq
+                      obtain ⟨left, right⟩ := heq
+                      split at right
+                      next x_1 var_1 ports_1 heq =>
+                        split at heq
+                        next x_2 var_2 ports_2 heq_1 => simp_all only [reduceCtorEq, not_false_eq_true]
+                        next x_2 heq_1 => simp_all only [not_true_eq_false]
+                        next x_2 op_1 ports_2 heq_1 => simp_all only [reduceCtorEq, not_false_eq_true]
+                      next x_1 heq =>
+                        split at heq
+                        next x_2 var_1 ports_1 heq_1 => simp_all only [reduceCtorEq, not_false_eq_true]
+                        next x_2 heq_1 => simp_all only [not_true_eq_false]
+                        next x_2 op_1 ports_1 heq_1 => simp_all only [reduceCtorEq, not_false_eq_true]
+                      next x_1 op_1 ports_1 heq =>
+                        split at heq
+                        next x_2 var_1 ports_2 heq_1 => simp_all only [reduceCtorEq, not_false_eq_true]
+                        next x_2 heq_1 => simp_all only [not_true_eq_false]
+                        next x_2 op_2 ports_2 heq_1 => simp_all only [reduceCtorEq, not_false_eq_true]
+                    next x x_1 => simp_all only [Node.mk.injEq, imp_false, not_and, forall_eq']
+                · -- aesop?
+                  subst heq
+                  simp_all only [mergeVars, updateReturnAux]
+end
 
 lemma mergeVars_no_overlapping_cons (h_nodup : (g1 ++ g2).varNames.Nodup) : mergeVars g1 g2 = g1 ++ g2 := by
   cases g2 with
