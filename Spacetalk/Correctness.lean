@@ -104,6 +104,18 @@ namespace DF
       apply DFG.Trace.tail ih node _ tl
       simp [h_mem]
 
+  theorem DFG.Trace.mem_dfg {dfg : DFG} : dfg.Trace nodes s1 s2 → ∀ node ∈ nodes, node ∈ dfg := by
+    intro trace
+    induction trace with
+    | refl => simp
+    | tail _ node h_mem _ ih =>
+      intro node' h_mem'
+      simp only [List.concat_eq_append, List.mem_append, List.mem_cons, List.not_mem_nil,
+        or_false] at h_mem'
+      apply h_mem'.elim
+      · intro h; exact ih _ h
+      · intro h; rw [h]; exact h_mem
+
   theorem DFG.Trace.filter {dfg : DFG} {f : Node → Bool}
     : dfg.Trace nodes s1 s2 → (∀ node ∈ nodes, f node = true) → DFG.Trace (dfg.filter f) nodes s1 s2 := by
     intro trace h
@@ -282,6 +294,227 @@ lemma output_if_ret
            have := maxNid_lt_new_maxNid (e := e2) (maxNid := (compileAux maxNid e1).2);
            omega)
     aesop
+
+-- lemma mergeVars_nid_unique {dfg1 dfg2 : DFG}
+--   (h1 : ∀ node1 ∈ dfg1, ∀ node2 ∈ dfg1, node1.id = node2.id → node1 = node2)
+--   (h2 : ∀ node1 ∈ dfg2, ∀ node2 ∈ dfg2, node1.id = node2.id → node1 = node2)
+--   (h_ne : ∀ node1 ∈ dfg1, ∀ node2 ∈ dfg2, node1.id ≠ node2.id)
+--   : ∀ node1 ∈ mergeVars dfg1 dfg2, ∀ node2 ∈ mergeVars dfg1 dfg2, node1.id = node2.id → node1 = node2 := by
+--   induction dfg2 generalizing dfg1 with
+--   | nil =>
+--     intro node1 h_mem1 node2 h_mem2 h_id
+--     simp_all only [mergeVars, List.foldl_nil]
+--     exact h1 _ h_mem1 _ h_mem2 h_id
+--   | cons hd tl ih =>
+--     have h_concat :
+--       ∀ node1 ∈ List.foldl mergeVarsAux (dfg1.concat hd) tl,
+--       ∀ node2 ∈ List.foldl mergeVarsAux (dfg1.concat hd) tl,
+--         node1.id = node2.id → node1 = node2 := by
+--       intro node1 h_mem1 node2 h_mem2 h_id
+--       apply @ih (dfg1.concat hd)
+--       · intro node1 h_mem1 node2 h_mem2 h_id
+--         simp [List.concat_eq_append, List.mem_append, List.mem_singleton] at h_mem1
+--         simp [List.concat_eq_append, List.mem_append, List.mem_singleton] at h_mem2
+--         cases h_mem1 <;> cases h_mem2
+--         all_goals rename_i h1' h2'
+--         · exact h1 _ h1' _ h2' h_id
+--         · have := h_ne _ h1' hd (by simp only [List.mem_cons, true_or])
+--           rw [h2'] at h_id
+--           contradiction
+--         · have := h_ne _ h2' hd (by simp only [List.mem_cons, true_or])
+--           rw [h1'] at h_id
+--           have := h_id.symm
+--           contradiction
+--         · rw [h1']
+--           rw [h2']
+--       · intro node1 h_mem1 node2 h_mem2
+--         apply h2 <;> simp only [List.mem_cons, h_mem1, h_mem2, or_true]
+--       · intro node1 h_mem1 node2 h_mem2
+--         simp only [List.concat_eq_append, List.mem_append, List.mem_cons, List.not_mem_nil,
+--           or_false] at h_mem1
+--         apply h_mem1.elim
+--         · intro h
+--           apply h_ne
+--           · exact h
+--           · simp only [List.mem_cons, h_mem2, or_true]
+--         · intro h
+
+--           sorry
+--       · sorry
+--     intro node1 h_mem1 node2 h_mem2 h_id
+--     sorry
+--     -- simp_all only [mergeVars, List.foldl_cons, mergeVarsAux]
+--     -- split at h_mem1
+--     -- next =>
+--     --   sorry
+--     -- next =>
+--     --   simp only at h_mem2
+--     --   exact h_concat _ h_mem1 _ h_mem2 h_id
+
+-- lemma nid_unique
+--   : ∀ node1 ∈ (compileAux maxNid e).1.dfg, ∀ node2 ∈ (compileAux maxNid e).1.dfg, node1.id = node2.id → node1 = node2 := by
+--   intro node1 h_mem1 node2 h_mem2
+--   cases e with
+--   | var =>
+--     -- aesop?
+--     intro a_1
+--     simp_all only [compileAux, List.mem_cons, List.not_mem_nil, or_false]
+--     cases h_mem1 with
+--     | inl h =>
+--       cases h_mem2 with
+--       | inl h_1 =>
+--         subst h_1 h
+--         simp_all only
+--       | inr h_2 =>
+--         subst h_2 h
+--         simp_all only [Nat.self_eq_add_right, Nat.succ_ne_self]
+--     | inr h_1 =>
+--       cases h_mem2 with
+--       | inl h =>
+--         subst h_1 h
+--         simp_all only [Nat.succ_ne_self]
+--       | inr h_2 =>
+--         subst h_1 h_2
+--         simp_all only
+--   | plus e1 e2 =>
+--     intro h_id
+--     simp_all only [compileAux]
+--     have h_mergeTwo_id_lt :
+--       ∀ node ∈ mergeTwo (compileAux maxNid e1).1 (compileAux (compileAux maxNid e1).2 e2).1 (compileAux (compileAux maxNid e1).2 e2).2,
+--         node.id < (compileAux (compileAux maxNid e1).2 e2).2 := by
+--       clear * -
+--       intro node h_mem
+--       simp only [mergeTwo] at h_mem
+--       have : ∀ node ∈ mergeVars (compileAux maxNid e1).1.dfg (compileAux (compileAux maxNid e1).2 e2).1.dfg, node.id < (compileAux (compileAux maxNid e1).2 e2).2 := by
+--         intro node h_mem
+--         apply (mergeVars_nid_in_original node h_mem).elim
+--         <;>
+--          (intro h
+--           obtain ⟨node', h_mem', h_id⟩ := h
+--           rw [h_id]
+--           have := nid_lt_new_maxNid node' h_mem'
+--           have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+--           omega)
+--       -- aesop?
+--       simp_all only [removeOutputNodes, updateReturn, mergeVars, List.map_map, List.mem_filter, List.mem_map,
+--         Function.comp_apply, updateReturnAux, Node.notOutput, gt_iff_lt]
+--       obtain ⟨left, right⟩ := h_mem
+--       obtain ⟨w, h⟩ := left
+--       obtain ⟨left, right_1⟩ := h
+--       subst right_1
+--       simp_all only
+--     have ih_mergeTwo :
+--       ∀ node1 ∈ mergeTwo (compileAux maxNid e1).1 (compileAux (compileAux maxNid e1).2 e2).1 (compileAux (compileAux maxNid e1).2 e2).2,
+--       ∀ node2 ∈ mergeTwo (compileAux maxNid e1).1 (compileAux (compileAux maxNid e1).2 e2).1 (compileAux (compileAux maxNid e1).2 e2).2,
+--         node1.id = node2.id → node1 = node2 := by
+--       clear * - nid_unique
+--       intro node1 h_mem1 node2 h_mem2 h_id
+--       have' h_mergeVars := mergeVars_nid_unique (dfg1 := (compileAux maxNid e1).1.dfg) (dfg2 := (compileAux (compileAux maxNid e1).2 e2).1.dfg)
+--         _ _ _
+--       · have ⟨h_mem1, _⟩ := List.mem_filter.mp h_mem1
+--         have ⟨h_mem2, _⟩ := List.mem_filter.mp h_mem2
+--         have ⟨node1', h_mem1, h_eq1⟩ := List.mem_map.mp h_mem1
+--         have ⟨node2', h_mem2, h_eq2⟩ := List.mem_map.mp h_mem2
+--         have ⟨node1'', h_mem1', h_eq1'⟩ := List.mem_map.mp h_mem1
+--         have ⟨node2'', h_mem2', h_eq2'⟩ := List.mem_map.mp h_mem2
+--         have' := h_mergeVars _ h_mem1' _ h_mem2' _
+--         · -- aesop?
+--           subst h_eq1' this h_eq2 h_eq1 h_eq2'
+--           simp_all only [mergeVars, updateReturn, updateReturnAux, List.mem_map, Node.mk.injEq, mergeTwo,
+--             removeOutputNodes, List.map_map, List.mem_filter, Function.comp_apply, Node.notOutput, and_self]
+--         · -- aesop?
+--           subst h_eq1' h_eq2 h_eq1 h_eq2'
+--           simp_all only [mergeVars, updateReturn, updateReturnAux, List.mem_map, Node.mk.injEq, mergeTwo,
+--             removeOutputNodes, List.map_map, List.mem_filter, Function.comp_apply, Node.notOutput]
+--       · exact nid_unique
+--       · exact nid_unique
+--       · intro node1 h_mem1 node2 h_mem2
+--         have := nid_lt_new_maxNid _ h_mem1
+--         have := maxNid_le_nid _ h_mem2
+--         omega
+--     cases h_mem1 <;> cases h_mem2
+--     on_goal 1 => rfl
+--     on_goal 3 =>
+--       rename_i h_mem1 h_mem2
+--       cases h_mem1 <;> cases h_mem2
+--       on_goal 1 => rfl
+--       on_goal 3 =>
+--         rename_i h_mem1 h_mem2
+--         exact ih_mergeTwo node1 h_mem1 node2 h_mem2 h_id
+--       all_goals
+--        (rename_i h_mem
+--         have := h_mergeTwo_id_lt _ h_mem
+--         simp only at h_id
+--         omega)
+--     all_goals
+--      (rename_i h_mem
+--       cases h_mem
+--       · simp at h_id
+--       · rename_i h_mem
+--         have := h_mergeTwo_id_lt _ h_mem
+--         simp only at h_id
+--         omega)
+
+-- lemma no_input_as_consumer
+--   : ∀ inputNode ∈ (compileAux maxNid e).1.dfg, inputNode.isInput = true → ∀ node ∈ (compileAux maxNid e).1.dfg, ∀ port ∈ node.consumers, port.node ≠ inputNode.id := by
+--   intro inputNode h_mem_input h_input node h_mem_node port h_mem_port
+--   cases e with
+--   | var =>
+--     simp only [compileAux, List.mem_cons, List.not_mem_nil, or_false] at h_mem_node
+--     apply h_mem_node.elim
+--     · intro h
+--       rw [h] at h_mem_port
+--       simp only [Node.consumers, List.mem_cons, List.not_mem_nil, or_false] at h_mem_port
+--       simp only [compileAux, List.mem_cons, List.not_mem_nil, or_false] at h_mem_input
+--       apply h_mem_input.elim
+--       · intro h
+--         simp_all
+--       · intro h
+--         rw [h] at h_input
+--         simp at h_input
+--     · intro h;
+--       rw [h] at h_mem_port
+--       simp at h_mem_port
+--   | plus e1 e2 =>
+--     simp only [compileAux, List.mem_cons] at h_mem_node
+--     apply h_mem_node.elim
+--     · intro h
+--       rw [h] at h_mem_port
+--       simp only [Node.consumers, List.mem_cons, List.not_mem_nil, or_false] at h_mem_port
+--       rw [h_mem_port]
+--       simp only
+--       by_contra h
+
+--       sorry
+--     · sorry
+
+lemma consumer_in_dfg : ∀ node ∈ (compileAux maxNid e).1.dfg, ∀ port ∈ node.consumers, ∃ node ∈ (compileAux maxNid e).1.dfg, node.id = port.node := by
+  intro node h_mem_node port h_mem_port
+  cases e with
+  | var => aesop
+  | plus e1 e2 =>
+    simp only [compileAux]
+    simp only [compileAux, removeOutputNodes, updateReturn, mergeVars, List.map_map,
+      List.mem_cons, List.mem_filter, List.mem_map, Function.comp_apply, updateReturnAux,
+      Node.notOutput] at h_mem_node
+    apply h_mem_node.elim
+    · intro h
+      exists ⟨(compileAux (compileAux maxNid e1).2 e2).2 + 1, .output⟩
+      apply And.intro <;> simp_all
+    · intro h
+      apply h.elim
+      · intro h
+        simp_all
+      · intro h
+        simp only [mergeTwo] at h
+        have ⟨h_mem, h_not_output⟩ := List.mem_filter.mp h
+        repeat
+         (have ⟨node, ⟨h_mem, h_eq⟩⟩ := List.mem_map.mp h_mem
+          rw [←h_eq] at h_mem_port)
+        have ih1 := @consumer_in_dfg maxNid e1
+        have ih2 := @consumer_in_dfg (compileAux maxNid e1).2 e2
+
+        sorry
 
 lemma initial_state_node_eq {dfg : DFG}
   : ∀ p, dfg.initialState env p ≠ [] → ∃ node ∈ dfg, node.id = p.node ∧ node.isInput = true := by
@@ -730,7 +963,19 @@ theorem compile_canonical_trace (eval : Eval env e v)
       · simp
       · refine Eq.subst ?_ (Node.Step.input ?_)
         cases eval
-        aesop
+        · -- aesop?
+          rename_i a
+          subst a
+          simp_all only [State.pushAll, MarkedDFG.initialState, DFG.initialState, compileAux, List.foldl_cons,
+            List.foldl_nil, State.push, ↓reduceIte, State.empty, List.concat_eq_append, List.nil_append, List.head_cons,
+            MarkedDFG.finalState]
+          ext x i a : 3
+          simp_all only [State.push, State.pop, Port.mk.injEq, Nat.succ_ne_self, and_true, ↓reduceIte, State.empty,
+            List.concat_eq_append, List.nil_append, List.tail_cons, ite_self, Option.mem_def]
+        · -- aesop?
+          simp_all only [MarkedDFG.initialState, DFG.initialState, compileAux, List.foldl_cons, List.foldl_nil,
+            State.push, ↓reduceIte, State.empty, List.concat_eq_append, List.nil_append, ne_eq, List.cons_ne_self,
+            not_false_eq_true]
     · exact DFG.Trace.refl
     all_goals simp
   | plus e1 e2 =>
@@ -754,33 +999,189 @@ theorem compile_canonical_trace (eval : Eval env e v)
         apply DFG.Trace.filter
         · repeat rw [MergedState_union_assoc]
           repeat rw [updateReturn_append_assoc]
+          have h_node_ne : ∀ node ∈ e1_op ++ e2_op,
+                  node.id ≠ (compileAux maxNid e1).1.ret.node ∧
+                    node.id ≠ (compileAux (compileAux maxNid e1).2 e2).2 ∧
+                      ∀ port ∈ node.consumers, port ≠ { node := (compileAux (compileAux maxNid e1).2 e2).2, port := 0 } := by
+            intro node h_mem
+            apply (List.mem_append.mp h_mem).elim
+            · intro h_mem
+              have h_mem_dfg := e1_t2.mem_dfg node h_mem
+              apply And.intro
+              · by_contra h
+                have h_output := output_if_ret node h_mem_dfg h
+                have h_op := h_e1_op node h_mem
+                exact Node.op_ne_output h_op h_output
+              · apply And.intro
+                · have := nid_lt_new_maxNid node h_mem_dfg
+                  have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+                  omega
+                · intro port h_mem_port
+                  obtain ⟨node, ⟨h_mem, h_eq⟩⟩ := consumer_in_dfg _ h_mem_dfg _ h_mem_port
+                  apply Port.node_ne
+                  rw [←h_eq]
+                  have := nid_lt_new_maxNid _ h_mem
+                  have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+                  simp only
+                  omega
+            · intro h_mem
+              have h_mem_dfg := e2_t2.mem_dfg node h_mem
+              apply And.intro
+              · have := maxNid_le_nid _ h_mem_dfg
+                have := @ret_lt_new_maxNid maxNid e1
+                omega
+              · apply And.intro
+                · have := nid_lt_new_maxNid _ h_mem_dfg
+                  omega
+                · intro port h_mem_port
+                  obtain ⟨node, ⟨h_mem, h_eq⟩⟩ := consumer_in_dfg _ h_mem_dfg _ h_mem_port
+                  apply Port.node_ne
+                  rw [←h_eq]
+                  have := nid_lt_new_maxNid _ h_mem
+                  simp only
+                  omega
           apply updateReturn_forward_trace
           · apply updateReturn_forward_trace
             · exact mergeVars_ops_step_merge e1_t2 e2_t2 h_e1_op h_e2_op
-            · sorry
-          · sorry
+            · exact h_node_ne
+          · intro node h_mem
+            obtain ⟨node', ⟨h_mem', h_eq⟩⟩ := List.mem_map.mp h_mem
+            rw [←h_eq]
+            apply (List.mem_append.mp h_mem').elim
+            · intro h
+              have h_mem_dfg := e1_t2.mem_dfg _ h
+              have h_op := h_e1_op _ h
+              match node', h_op with
+              | ⟨nid, .binOp op ports⟩, _ =>
+                simp only [updateReturnAux, ne_eq, Node.consumers, List.mem_map,
+                  forall_exists_index, and_imp, forall_apply_eq_imp_iff₂]
+                apply And.intro
+                · have := nid_lt_new_maxNid _ h_mem_dfg
+                  have := @maxNid_lt_ret (compileAux maxNid e1).2 e2
+                  simp_all only
+                  omega
+                · apply And.intro
+                  · have := nid_lt_new_maxNid _ h_mem_dfg
+                    have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+                    simp_all only
+                    omega
+                  · intro port h_mem_port
+                    split
+                    · simp
+                    · apply Port.node_ne
+                      obtain ⟨node, ⟨h_mem, h_eq⟩⟩:= consumer_in_dfg _ h_mem_dfg _ h_mem_port
+                      rw [←h_eq]
+                      have := nid_lt_new_maxNid _ h_mem
+                      have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+                      simp only
+                      omega
+            · intro h
+              have h_mem_dfg := e2_t2.mem_dfg _ h
+              have h_op := h_e2_op _ h
+              match node', h_op with
+              | ⟨nid, .binOp op ports⟩, _ =>
+                simp only [updateReturnAux, ne_eq, Node.consumers, List.mem_map,
+                  forall_exists_index, and_imp, forall_apply_eq_imp_iff₂]
+                apply And.intro
+                · by_contra h
+                  have := output_if_ret _ h_mem_dfg h
+                  simp at this
+                · apply And.intro
+                  · have := nid_lt_new_maxNid _ h_mem_dfg
+                    have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+                    simp_all only
+                    omega
+                  · intro port h_mem_port
+                    split
+                    · simp
+                    · apply Port.node_ne
+                      obtain ⟨node, ⟨h_mem, h_eq⟩⟩:= consumer_in_dfg _ h_mem_dfg _ h_mem_port
+                      rw [←h_eq]
+                      have := nid_lt_new_maxNid _ h_mem
+                      have := @maxNid_lt_new_maxNid (compileAux maxNid e1).2 e2
+                      simp only
+                      omega
         · intro node h_mem
           apply (List.mem_append.mp h_mem).elim
-          <;>
+          all_goals
            (intro h_mem
-            suffices h : node.isOp = true by
-              obtain ⟨nid, op⟩ := node
-              cases op <;> simp_all)
-          on_goal 1 => apply h_e1_op
-          on_goal 2 => apply h_e2_op
-          all_goals sorry
+            repeat (obtain ⟨node, ⟨h_mem, h_eq⟩⟩ := List.mem_map.mp h_mem; rw [←h_eq]))
+          on_goal 1 => have := h_e1_op _ h_mem
+          on_goal 2 => have := h_e2_op _ h_mem
+          all_goals (clear * - this; aesop)
       · simp
-      · refine Eq.subst ?_ (Node.Step.binOp ?_ ?_)
-        have : (compileAux (compileAux maxNid e1).2 e2).1.ret ≠ (compileAux maxNid e1).1.ret := by
+      · have h_ret_ne_ret : (compileAux maxNid e1).1.ret ≠ (compileAux (compileAux maxNid e1).2 e2).1.ret := by
           apply Port.node_ne
           have := @ret_lt_new_maxNid maxNid e1
           have := @maxNid_lt_ret (compileAux maxNid e1).2 e2
           omega
-        · sorry
-        · sorry
-        · sorry
+        have h_max_ne_e2_ret : ∀ {portId}, ⟨(compileAux (compileAux maxNid e1).2 e2).2, portId⟩ ≠ (compileAux (compileAux maxNid e1).2 e2).1.ret := by
+          intro
+          apply Port.node_ne
+          simp only
+          have := @ret_lt_new_maxNid (compileAux maxNid e1).2 e2
+          omega
+        refine Eq.subst ?_ (Node.Step.binOp ?_ ?_)
+        · simp only [State.pushAll, BinOp.denote, State.union, MergedState, MarkedDFG.finalState,
+            State.forwardPort, Port.mk.injEq, Nat.zero_ne_one, and_false, ↓reduceIte, State.push,
+            State.empty, List.concat_eq_append, List.nil_append, List.foldl_cons, List.foldl_nil]
+          split
+          next h => exfalso; exact h_max_ne_e2_ret h
+          next =>
+            split
+            next h => exfalso; exact h_max_ne_e2_ret h.symm
+            next =>
+              split
+              next h => exfalso; exact h_ret_ne_ret h.symm
+              next =>
+                funext p
+                simp only [State.push, State.pop, Port.mk.injEq, Nat.succ_ne_self, Nat.zero_ne_one,
+                  and_self, ↓reduceIte, and_true, State.union, State.forwardPort, State.empty,
+                  List.concat_eq_append, List.nil_append, List.append_nil, List.head_cons,
+                  List.append_assoc, and_false]
+                simp_all only [MarkedDFG.initialState, DFG.initialState, MarkedDFG.finalState, Node.isInput, Node.isOp,
+                  ne_eq, not_false_eq_true, implies_true, ↓reduceIte, List.nil_append, List.tail_cons,
+                  List.append_nil, ite_self]
+        · have : ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩ ≠ (compileAux (compileAux maxNid e1).2 e2).1.ret := by
+            apply Port.node_ne
+            simp only
+            have := @ret_lt_new_maxNid (compileAux maxNid e1).2 e2
+            omega
+          simp_all only [MarkedDFG.initialState, DFG.initialState, MarkedDFG.finalState, Node.isInput, Node.isOp, ne_eq,
+            State.union, MergedState, State.forwardPort, Port.mk.injEq, Nat.zero_ne_one, and_false, ↓reduceIte,
+            State.push, State.empty, List.concat_eq_append, List.nil_append, List.cons_append, reduceCtorEq,
+            not_false_eq_true]
+        · simp
+          intro h
+          split
+          next h => exfalso; exact h_max_ne_e2_ret h.symm
+          next =>
+            split
+            next h =>
+              exfalso
+              have := @ret_lt_new_maxNid maxNid e1
+              rw [←h] at this
+              have := @maxNid_lt_ret (compileAux maxNid e1).2 e2
+              omega
+            next => simp only [List.cons_ne_self, not_false_eq_true]
     · sorry
-    · sorry
+    · intro node h_mem
+      simp only [List.concat_eq_append, List.mem_append, List.mem_singleton] at h_mem
+      apply h_mem.elim
+      · intro h
+        apply h.elim
+        all_goals
+         (intro h_mem
+          repeat (obtain ⟨node, ⟨h_mem, h_eq⟩⟩ := List.mem_map.mp h_mem; rw [←h_eq]))
+        on_goal 1 => have := h_e1_op _ h_mem
+        on_goal 2 => have := h_e2_op _ h_mem
+        all_goals
+         (match node, this with
+          | ⟨_, .binOp _ _⟩, _ =>
+            simp only [Node.isOp, updateReturnAux, List.map_map])
+      · intro h
+        rw [h]
+        simp only [Node.isOp]
     all_goals sorry
 
 theorem compile_value_correct (eval : Eval env e v)

@@ -44,6 +44,9 @@ def Node.notOutput : Node → Bool
   | ⟨_, .output⟩ => false
   | _ => true
 
+def Node.op_ne_output {node : Node} : node.isOp = true → node.isOutput = true → False := by
+  aesop
+
 @[simp]
 def Node.opTypeEq : Node → Node → Bool
   | ⟨_, .input _ _⟩, ⟨_, .input _ _⟩
