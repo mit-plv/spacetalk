@@ -667,9 +667,122 @@ lemma mergeVars_consumer_in_original
      (simp only [h_hd, h_op] at h_mem
       exact ih_concat _ h_mem _ h_mem_port)
 
+-- merged input nodes gets removed, so we need to prove that input nodes don't point to themselves
 lemma mergeVars_consumer_in_dfg
+  (h1 : ∀ node ∈ dfg1, ∀ port ∈ node.consumers, (∃ node ∈ dfg1, node.id = port.node) ∨ ∃ node ∈ dfg2, node.id = port.node)
+  (h2 : ∀ node ∈ dfg2, ∀ port ∈ node.consumers, (∃ node ∈ dfg2, node.id = port.node) ∨ ∃ node ∈ dfg1, node.id = port.node)
   : ∀ node ∈ mergeVars dfg1 dfg2, ∀ port ∈ node.consumers, ∃ node ∈ mergeVars dfg1 dfg2, node.id = port.node := by
-  sorry
+  induction dfg2 generalizing dfg1 with
+  | nil =>
+    -- aesop?
+    intro node a port a_1
+    simp_all only [Node.consumers, List.not_mem_nil, false_and, exists_false, or_false, implies_true, true_and,
+      forall_const, IsEmpty.forall_iff, mergeVars, List.foldl_nil]
+    split at a_1
+    next x id a_2 ports =>
+      apply h1
+      · exact a
+      · simp_all only
+    next x id a_2 ports =>
+      apply h1
+      · exact a
+      · simp_all only
+    next x x_1 x_2 => simp_all only [imp_false, List.not_mem_nil]
+  | cons hd tl ih =>
+    have ih_concat : ∀ node ∈ mergeVars (dfg1 ++ [hd]) tl, ∀ port ∈ node.consumers,
+                      ∃ node ∈ mergeVars (dfg1 ++ [hd]) tl, node.id = port.node := by
+      intro node h_mem_node port h_mem_port
+      apply ih _ _ _ h_mem_node _ h_mem_port
+      · intro node h_mem_node port h_mem_port
+        simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at h_mem_node
+        apply h_mem_node.elim
+        on_goal 1 =>
+          intro h
+          apply (h1 _ h _ h_mem_port).elim
+        on_goal 3 =>
+          intro h
+          apply (h2 hd (by simp only [List.mem_cons, true_or]) _ (h ▸ h_mem_port)).elim
+        all_goals first
+          |
+           (intro h
+            obtain ⟨node, ⟨h_mem_node, h_eq⟩⟩ := h
+            apply Or.intro_left
+            exists node
+            apply And.intro _ h_eq
+            simp only [List.mem_append, h_mem_node, List.mem_cons, List.not_mem_nil, or_false,
+              true_or]
+            done)
+          |
+           (intro h
+            obtain ⟨node, ⟨h_mem_node, h_eq⟩⟩ := h
+            apply (List.mem_cons.mp h_mem_node).elim
+            · intro h
+              apply Or.intro_left
+              exists node
+              apply And.intro _ h_eq
+              rw [h]
+              simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false, or_true]
+            · intro h
+              apply Or.intro_right
+              exists node)
+      · intro node h_mem_node port h_mem_port
+        apply (h2 node (by simp only [List.mem_cons, h_mem_node, or_true]) _ h_mem_port).elim
+        · intro h
+          obtain ⟨node, ⟨h_mem_node, h_eq⟩⟩ := h
+          apply (List.mem_cons.mp h_mem_node).elim
+          · intro h
+            apply Or.intro_right
+            exists node
+            apply And.intro _ h_eq
+            rw [h]
+            simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false, or_true]
+          · intro h
+            apply Or.intro_left
+            exists node
+        · intro h
+          obtain ⟨node, ⟨h_mem_node, h_eq⟩⟩ := h
+          apply Or.intro_right
+          exists node
+          apply And.intro _ h_eq
+          simp only [List.mem_append, h_mem_node, List.mem_cons, List.not_mem_nil, or_false,
+            true_or]
+    intro node h_mem_node port h_mem_port
+    simp only [mergeVars, List.foldl_cons] at h_mem_node
+    cases h_hd : hd
+    rename_i nid op
+    cases h_op : op with
+    | input var ports =>
+      simp only [mergeVarsAux, h_hd, h_op, sameVarInputIdx, List.concat_eq_append] at h_mem_node
+      simp only [mergeVars, List.foldl_cons, mergeVarsAux, sameVarInputIdx, List.concat_eq_append]
+      split
+      · rename_i heq
+        simp_rw [heq] at h_mem_node
+        apply ih _ _ _ h_mem_node _ h_mem_port
+        ·
+          sorry
+        · intro node h_mem_node port h_mem_port
+          apply (h2 node (by simp only [List.mem_cons, h_mem_node, or_true]) _ h_mem_port).elim
+          · intro h
+            obtain ⟨node, ⟨h_mem_node, h_eq⟩⟩ := h
+            apply (List.mem_cons.mp h_mem_node).elim
+            · intro h
+              apply Or.intro_right
+
+              sorry
+            · intro h
+              apply Or.intro_left
+              exists node
+          · sorry
+      · simp only at h_mem_node
+        rw [←h_op] at h_mem_node
+        rw [←h_hd] at h_mem_node
+        rw [←h_op]
+        rw [←h_hd]
+        exact ih_concat _ h_mem_node _ h_mem_port
+    | output =>
+      sorry
+    | binOp op ports =>
+      sorry
 
 mutual
   theorem port_eq_ret_of_node_eq
@@ -797,7 +910,7 @@ mutual
                 simp_all only [Nat.succ_ne_self, false_or, true_or]
               · obtain ⟨h_mem_port, heq⟩ := heq
                 rw [←heq]
-                obtain ⟨node, ⟨h_mem_node, h_id_eq⟩⟩ := mergeVars_consumer_in_dfg _ h_mem port h_mem_port
+                obtain ⟨node, ⟨h_mem_node, h_id_eq⟩⟩ := mergeVars_consumer_in_dfg sorry sorry _ h_mem port h_mem_port
                 exists
                   updateReturnAux (compileAux (compileAux maxNid e1).2 e2).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 1⟩
                   (updateReturnAux (compileAux maxNid e1).1.ret ⟨(compileAux (compileAux maxNid e1).2 e2).2, 0⟩ node)
@@ -1295,6 +1408,18 @@ lemma updateReturn_append_assoc
   : ((updateReturn dfg1 oldPort newPort) ++ (updateReturn dfg2 oldPort newPort)) =
     (updateReturn (dfg1 ++ dfg2) oldPort newPort) := by
   aesop
+
+lemma mergeVars_input_step_merge {dfg1 dfg2 : DFG} {env : Env}
+  : dfg1.Trace nodes1 (dfg1.initialState env) s1
+    → dfg2.Trace nodes2 (dfg2.initialState env) s2
+    → (∀ node ∈ nodes1, node.isInput = true)
+    → (∀ node ∈ nodes2, node.isInput = true)
+    → (dfg1.Disjoint dfg2)
+    → ∃ newNodes,
+        (mergeVars dfg1 dfg2).Trace newNodes ((mergeVars dfg1 dfg2).initialState env) (s1 ⊕ s2) ∧
+        ∀ node ∈ newNodes, node.isInput = true := by
+  
+  sorry
 
 lemma mergeVars_ops_step_merge {dfg1 dfg2 : DFG}
   : dfg1.Trace nodes1 s1 s2 → dfg2.Trace nodes2 s3 s4 → (∀ node ∈ nodes1, node.isOp = true) → (∀ node ∈ nodes2, node.isOp = true)
