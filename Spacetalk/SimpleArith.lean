@@ -7,8 +7,17 @@ theorem Vector.cast_toArray {h : arr.size = n} {heq : n = m} : (heq ▸ ⟨arr, 
   subst h heq
   simp_all only
 
-def Vector.nil_append : ∀ vNil : Vector α 0, ∀ v : Vector α n, vNil ++ v = (Nat.zero_add n).symm ▸ v := by
-  intro vNil v
+def Vector.append_nil {v : Vector α n} {vNil : Vector α 0} : v ++ vNil = v := by
+  obtain ⟨arrNil, h_nil⟩ := vNil
+  obtain ⟨arr, h⟩ := v
+  simp only [Nat.add_zero, eq_mk]
+  simp only [HAppend.hAppend, append, Nat.add_zero]
+  subst h
+  simp_all only [List.length_eq_zero_iff, Array.toList_eq_nil_iff]
+  subst h_nil
+  rfl
+
+def Vector.nil_append {vNil : Vector α 0} {v : Vector α n} : vNil ++ v = (Nat.zero_add n).symm ▸ v := by
   obtain ⟨_, h_size⟩ := vNil
   simp_rw [Array.size_eq_zero_iff.mp h_size]
   simp only [HAppend.hAppend, append, mk_eq]
@@ -188,3 +197,12 @@ theorem compileC_correct
       Vector.append_split_map_right_eq]
     subst h_inp
     rfl
+
+theorem compile_correct : ∀ e : Exp nExp, e.denote = e.compile.denote := by
+  intro e
+  funext inp
+  simp only [Exp.compile]
+  have := compileC_correct e (λ out => .nodeClosed .id #v[out]) inp #v[]
+  rw [Vector.append_nil] at this
+  rw [←this]
+  rfl
