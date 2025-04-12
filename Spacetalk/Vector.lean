@@ -1,4 +1,8 @@
 import Mathlib.Order.Lattice
+import Aesop
+
+theorem Vector.size_zero_eq {v : Vector α 0} : v = #v[] := by
+  simp_all only [eq_mk, toArray_eq_empty_iff]
 
 theorem Vector.cast_toArray {h : arr.size = n} {heq : n = m} : (heq ▸ ⟨arr, h⟩ : Vector α m).toArray = arr := by
   subst h heq
@@ -94,3 +98,18 @@ theorem Vector.append_assoc {v1 : Vector α n} {v2 : Vector α m} {v3 : Vector �
   obtain ⟨arr3, h3⟩ := v3
   simp only [mk_append_mk, Array.append_assoc, mk_eq]
   rw [Vector.cast_toArray]
+
+theorem Vector.split_last_push_eq {v : Vector α (n + 1)} : v.split.1.push v.split.2[0] = v := by
+  obtain ⟨arr, h⟩ := v
+  simp only [Vector.split, Vector.drop_mk]
+  rw [Vector.getElem_mk]
+  simp only [take_eq_extract, Nat.add_one_sub_one, extract_eq_pop, Nat.sub_zero, pop_mk, cast_mk,
+    cast_toArray, Array.getElem_extract, Nat.add_zero, eq_mk, toArray_push]
+  obtain ⟨l⟩ := arr
+  simp only [List.pop_toArray, List.getElem_toArray, List.push_toArray, Array.mk.injEq]
+  simp at h
+  have h_ne_nil : l ≠ [] := by aesop
+  have : n = l.length - 1 := by aesop
+  simp_rw [this]
+  rw [←(List.getLast_eq_getElem l h_ne_nil)]
+  exact List.dropLast_concat_getLast (l := l) h_ne_nil
