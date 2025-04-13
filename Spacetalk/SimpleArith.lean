@@ -7,6 +7,14 @@ inductive Exp : Nat → Type
   | var : Fin n → Exp n
   | plus : Exp n → Exp n → Exp n
 
+def Exp.toString : Exp n → String
+| val v => s!"{v}"
+| var idx => s!"ext_{idx}"
+| plus e1 e2 => s!"({e1.toString} + {e2.toString})"
+
+instance : Repr (Exp n) where
+  reprPrec e _ := e.toString
+
 def Exp.eval : Exp n → Vector Nat n → Nat
 | val v, _ => v
 | var idx, inp => inp[idx]
@@ -28,8 +36,35 @@ inductive Graph (α : Type) : Nat → Type
   | var : α → (α → Graph α n) → Graph α n
   | node : Node α inp → Vector α inp → Graph α 0
   | μClosed : Node α inp → Vector α inp → (α → Graph α n) → Graph α n
-  | μOpenLeft : Node α inp → (α → Graph α n) → Graph α (inp + n)
-  | μOpenRight : Node α inp → (α → Graph α n) → Graph α (n + inp)
+  | μOpen : Node α inp → (α → Graph α n) → Graph α (n + inp)
+
+def Node.toString (nid : Nat) (inp : Vector String n) : Node String n → String
+| id => s!"{nid}: id #{inp[0]}"
+| const v => s!"{nid}: const {v}"
+| plus => s!"{nid}: #{inp[0]} + #{inp[1]}"
+
+def Graph.toStringAux : Graph String n → StateM Nat String
+| var s f => (f s).toStringAux
+| node n inp =>
+  .modifyGet λ nid => (n.toString nid inp, nid + 1)
+| μClosed n inp f => do
+  let nid ← .get
+  .set (nid + 1)
+  let c ← (f nid.repr).toStringAux
+  let n := n.toString nid inp
+  return s!"{n}\n{c}"
+| @μOpen _ nNode nCont n f => do
+  let nid ← .get
+  .set (nid + 1)
+  let c ← (f nid.repr).toStringAux
+  let n := n.toString nid ((Vector.range' nCont nNode).map (s!"ext_{·.repr}"))
+  return s!"{n}\n{c}"
+
+def Graph.toString (g : Graph String n) : String :=
+  (g.toStringAux.run 0).1
+
+instance : Repr (Graph String n) where
+  reprPrec g _ := g.toString
 
 def Node.denote : Node α inp → (Vector (Stream' Nat) inp → Stream' Nat)
 | id => λ v => v[0]
@@ -40,17 +75,14 @@ def Graph.denote : Graph (Stream' Nat) nInp → (Vector (Stream' Nat) nInp) → 
 | var s c, inp => (c s).denote inp
 | node n inp, _ => n.denote inp
 | μClosed n μInp f, fInp => (f (n.denote μInp)).denote fInp
-| μOpenLeft n f, vInp =>
-  let (μNodeInp, fInp) := vInp.split
-  (f (n.denote μNodeInp)).denote fInp
-| μOpenRight n f, vInp =>
+| μOpen n f, vInp =>
   let (fInp, μNodeInp) := vInp.split
   (f (n.denote μNodeInp)).denote fInp
 
 def addInputs : (n : Nat) → (Vector α n → Graph α 0) → Graph α n
 | 0, c => c #v[]
 | n + 1, c =>
-  .μOpenRight .id λ last =>
+  .μOpen .id λ last =>
   addInputs n λ front =>
   c (front.push last)
 
@@ -113,3 +145,9 @@ theorem compile_correct : ∀ e : Exp n, e.denote = e.compile.denote := by
   simp only [Node.denote, Vector.getElem_mk, List.getElem_toArray, List.getElem_cons_zero] at this
   rw [this]
   rw [←addInputs_eq]
+
+def myExp : Exp 2 :=
+  .plus (.plus (.val 42) (.var 0)) (.plus (.var 1) (.var 0))
+
+#eval myExp
+#eval myExp.compile (α := String)
