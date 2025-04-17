@@ -33,7 +33,7 @@ inductive Node (α : Type) : Nat → Type
   | plus : Node α 2
 
 inductive Graph (α : Type) : Nat → Type
-  | var : α → (α → Graph α n) → Graph α n
+  -- | var : α → (α → Graph α n) → Graph α n
   | node : Node α inp → Vector α inp → Graph α 0
   | μClosed : Node α inp → Vector α inp → (α → Graph α n) → Graph α n
   | μOpen : Node α inp → (α → Graph α n) → Graph α (n + inp)
@@ -44,7 +44,7 @@ def Node.toString (nid : Nat) (inp : Vector String n) : Node String n → String
 | plus => s!"{nid}: #{inp[0]} + #{inp[1]}"
 
 def Graph.toStringAux : Graph String n → StateM Nat String
-| var s f => (f s).toStringAux
+-- | var s f => (f s).toStringAux
 | node n inp =>
   .modifyGet λ nid => (n.toString nid inp, nid + 1)
 | μClosed n inp f => do
@@ -72,7 +72,7 @@ def Node.denote : Node α inp → (Vector (Stream' Nat) inp → Stream' Nat)
 | plus => λ inp => Stream'.zip HAdd.hAdd inp[0] inp[1]
 
 def Graph.denote : Graph (Stream' Nat) nInp → (Vector (Stream' Nat) nInp) → Stream' Nat
-| var s c, inp => (c s).denote inp
+-- | var s c, inp => (c s).denote inp
 | node n inp, _ => n.denote inp
 | μClosed n μInp f, fInp => (f (n.denote μInp)).denote fInp
 | μOpen n f, vInp =>
@@ -88,7 +88,7 @@ def addInputs : (n : Nat) → (Vector α n → Graph α 0) → Graph α n
 
 def Exp.compileC (inputs : Vector α n) (cont : α → Graph α 0) : Exp n → Graph α 0
 | val v => .μClosed (.const v) #v[] cont
-| var idx => .var inputs[idx] cont
+| var idx => cont inputs[idx]
 | plus e1 e2 =>
   e1.compileC inputs λ e1Out =>
   e2.compileC inputs λ e2Out =>
