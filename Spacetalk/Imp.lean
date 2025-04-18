@@ -40,7 +40,9 @@ def Imp.denote {t : Ty} : Imp Ty.denote (λ _ ↦ Nat) t → StateT Store Option
   let val ← val.denote
   let store ← .get
   .set (store.concat (mkRef val))
-  (body store.length).denote
+  let res ← (body store.length).denote
+  .modifyGet λ store =>
+  (res, store.dropLast)
 | read idx => do
   let store ← .get
   let ref ← store[idx]?
