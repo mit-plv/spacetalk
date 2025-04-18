@@ -1,8 +1,9 @@
 import Mathlib.Data.Stream.Defs
 
+import Spacetalk.HList
 import Spacetalk.Vector
 
---------------------- Imperative Language ---------------------
+--------------------- Common ----------------------------------
 inductive Ty
   | unit
   | bool
@@ -12,6 +13,20 @@ inductive BinOp : Ty → Ty → Ty → Type
   | add : BinOp .nat .nat .nat
   | mul : BinOp .nat .nat .nat
 
+@[simp, reducible]
+def Ty.denote : Ty → Type
+| unit => Unit
+| bool => Bool
+| nat => Nat
+
+@[simp]
+abbrev Ty.streamDenote : Ty → Type := Stream' ∘ Ty.denote
+
+def BinOp.denote : BinOp α β γ → α.denote → β.denote → γ.denote
+| add => Nat.add
+| mul => Nat.mul
+
+--------------------- Imperative Language ---------------------
 inductive Imp (C M : Ty → Type) : Ty → Type
   | const (n : Nat) : Imp C M .nat
   | var (v : C α) : Imp C M α
@@ -21,16 +36,6 @@ inductive Imp (C M : Ty → Type) : Ty → Type
   | binop (op : BinOp α β γ) (arg1 : Imp C M α) (arg2 : Imp C M β) : Imp C M γ
   | seq (e1 : Imp C M α) (e2 : Imp C M β) : Imp C M β
   | for_ (start stop : Nat) (body : C .nat → Imp C M .unit) : Imp C M .unit
-
-@[simp, reducible]
-def Ty.denote : Ty → Type
-| unit => Unit
-| bool => Bool
-| nat => Nat
-
-def BinOp.denote : BinOp α β γ → α.denote → β.denote → γ.denote
-| add => Nat.add
-| mul => Nat.mul
 
 inductive Ref
   | unit
@@ -81,23 +86,22 @@ def Imp.denote {t : Ty} : Imp Ty.denote (λ _ ↦ Nat) t → StateT Store Option
 
 ----------------- Dataflow Graphs ----------------------
 -- single output only
-inductive Node (α : Type) : Nat → Type
-  | id : Node α 1
-  | const : Nat → Node α 0
-  | plus : Node α 2
+inductive Node (rep : Ty → Type) : List Ty → Ty → Type
+  | id : Node rep [α] α
+  | const : Nat → Node rep [] .nat
+  | binop : BinOp α β γ → Node rep [α, β] γ
 
-inductive Graph (α : Type) : Nat → Type
-  -- | var : α → (α → Graph α n) → Graph α n
-  | node : Node α inp → Vector α inp → Graph α 0
-  | μClosed : Node α inp → Vector α inp → (α → Graph α n) → Graph α n
-  | μOpen : Node α inp → (α → Graph α n) → Graph α (n + inp)
+inductive Graph (rep : Ty → Type) : List Ty → Ty → Type
+  | node (node : Node rep inps out) (inpVals : HList rep inps) : Graph rep [] out
+  | μClosed (node : Node rep inps out) (inpVals : HList rep inps) (c : rep out → Graph rep cInps out) : Graph rep cInps out
+  | μOpen (node : Node rep inps out) (c : rep out → Graph rep cInps out) : Graph rep (cInps ++ inps) out
 
-def Node.denote : Node α inp → (Vector (Stream' Nat) inp → Stream' Nat)
-| id => λ v => v[0]
-| const v => λ _ => .const v
-| plus => λ inp => Stream'.zip HAdd.hAdd inp[0] inp[1]
+def Node.denote {inps : List Ty} {out : Ty} : Node Ty.streamDenote inps out → HList Ty.streamDenote inps → Stream' out.denote
+| id, hl => hl.get .head
+| const v, _ => .const v
+| binop op, hl => Stream'.zip op.denote (hl.get .head) (hl.get (.tail .head))
 
-def Graph.denote : Graph (Stream' Nat) nInp → (Vector (Stream' Nat) nInp) → Stream' Nat
+def Graph.denote {inps : List Ty} {out : Ty} : Graph Ty.streamDenote inps out → HList Ty.streamDenote inps → Stream' out.denote
 | node n inp, _ => n.denote inp
 | μClosed n μInp f, fInp => (f (n.denote μInp)).denote fInp
 | μOpen n f, vInp =>
@@ -107,38 +111,33 @@ def Graph.denote : Graph (Stream' Nat) nInp → (Vector (Stream' Nat) nInp) → 
 
 
 
-
-
-
 ---------------------- DFG Utilities ------------------------------
-def Node.toString (nid : Nat) (inp : Vector String n) : Node String n → String
-| id => s!"{nid}: id #{inp[0]}"
-| const v => s!"{nid}: const {v}"
-| plus => s!"{nid}: #{inp[0]} + #{inp[1]}"
+-- def Node.toString (nid : Nat) (inp : Vector String n) : Node String n → String
+-- | id => s!"{nid}: id #{inp[0]}"
+-- | const v => s!"{nid}: const {v}"
+-- | plus => s!"{nid}: #{inp[0]} + #{inp[1]}"
 
-def Graph.toStringAux : Graph String n → StateM Nat String
--- | var s f => (f s).toStringAux
-| node n inp =>
-  .modifyGet λ nid => (n.toString nid inp, nid + 1)
-| μClosed n inp f => do
-  let nid ← .get
-  .set (nid + 1)
-  let c ← (f nid.repr).toStringAux
-  let n := n.toString nid inp
-  return s!"{n}\n{c}"
-| @μOpen _ nNode nCont n f => do
-  let nid ← .get
-  .set (nid + 1)
-  let c ← (f nid.repr).toStringAux
-  let n := n.toString nid ((Vector.range' nCont nNode).map (s!"ext_{·.repr}"))
-  return s!"{n}\n{c}"
+-- def Graph.toStringAux : Graph String n → StateM Nat String
+-- | node n inp =>
+--   .modifyGet λ nid => (n.toString nid inp, nid + 1)
+-- | μClosed n inp f => do
+--   let nid ← .get
+--   .set (nid + 1)
+--   let c ← (f nid.repr).toStringAux
+--   let n := n.toString nid inp
+--   return s!"{n}\n{c}"
+-- | @μOpen _ nNode nCont n f => do
+--   let nid ← .get
+--   .set (nid + 1)
+--   let c ← (f nid.repr).toStringAux
+--   let n := n.toString nid ((Vector.range' nCont nNode).map (s!"ext_{·.repr}"))
+--   return s!"{n}\n{c}"
 
-def Graph.toString (g : Graph String n) : String :=
-  (g.toStringAux.run 0).1
+-- def Graph.toString (g : Graph String n) : String :=
+--   (g.toStringAux.run 0).1
 
-instance : Repr (Graph String n) where
-  reprPrec g _ := g.toString
-
+-- instance : Repr (Graph String n) where
+--   reprPrec g _ := g.toString
 
 
 
