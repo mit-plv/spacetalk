@@ -15,16 +15,16 @@ inductive BinOp : Ty → Ty → Ty → Type
 
 @[simp, reducible]
 def Ty.denote : Ty → Type
-| unit => Unit
-| bool => Bool
-| nat => Nat
+  | unit => Unit
+  | bool => Bool
+  | nat => Nat
 
 @[simp]
 abbrev Ty.streamDenote : Ty → Type := Stream' ∘ Ty.denote
 
 def BinOp.denote : BinOp α β γ → α.denote → β.denote → γ.denote
-| add => Nat.add
-| mul => Nat.mul
+  | add => Nat.add
+  | mul => Nat.mul
 
 --------------------- Imperative Language ---------------------
 inductive Imp (C M : Ty → Type) : Ty → Type
@@ -52,37 +52,37 @@ def mkRef {t : Ty} (v : t.denote) : Ref :=
 abbrev Store := List Ref
 
 def Imp.denote {t : Ty} : Imp Ty.denote (λ _ ↦ Nat) t → StateT Store Option t.denote
-| const n => pure n
-| var v => pure v
-| alloc val body => do
-  let val ← val.denote
-  let store ← .get
-  .set (store.concat (mkRef val))
-  let res ← (body store.length).denote
-  .modifyGet λ store =>
-  (res, store.dropLast)
-| read idx => do
-  let store ← .get
-  let ref ← store[idx]?
-  match t, ref with
-  | .unit, .unit => pure ()
-  | .bool, .bool b => pure b
-  | .nat, .nat n => pure n
-  | _, _ => none
-| write idx e => do
-  let store ← .get
-  let val ← e.denote
-  .set (store.set idx (mkRef val))
-| binop op e1 e2 => do
-  let x ← e1.denote
-  let y ← e2.denote
-  pure (op.denote x y)
-| seq e1 e2 => do
-  let _ ← e1.denote
-  e2.denote
-| for_ start stop body => do
-  let _ ← (List.range' start stop).forM (λ idx => (body idx).denote)
-  pure ()
+  | const n => pure n
+  | var v => pure v
+  | alloc val body => do
+    let val ← val.denote
+    let store ← .get
+    .set (store.concat (mkRef val))
+    let res ← (body store.length).denote
+    .modifyGet λ store =>
+    (res, store.dropLast)
+  | read idx => do
+    let store ← .get
+    let ref ← store[idx]?
+    match t, ref with
+    | .unit, .unit => pure ()
+    | .bool, .bool b => pure b
+    | .nat, .nat n => pure n
+    | _, _ => none
+  | write idx e => do
+    let store ← .get
+    let val ← e.denote
+    .set (store.set idx (mkRef val))
+  | binop op e1 e2 => do
+    let x ← e1.denote
+    let y ← e2.denote
+    pure (op.denote x y)
+  | seq e1 e2 => do
+    let _ ← e1.denote
+    e2.denote
+  | for_ start stop body => do
+    let _ ← (List.range' start stop).forM (λ idx => (body idx).denote)
+    pure ()
 
 ----------------- Dataflow Graphs ----------------------
 -- single output only
@@ -93,22 +93,37 @@ inductive Node (rep : Ty → Type) : List Ty → Ty → Type
 
 inductive Graph (rep : Ty → Type) : List Ty → Ty → Type
   | node (node : Node rep inps out) (inpVals : HList rep inps) : Graph rep [] out
-  | μClosed (node : Node rep inps out) (inpVals : HList rep inps) (c : rep out → Graph rep cInps out) : Graph rep cInps out
-  | μOpen (node : Node rep inps out) (c : rep out → Graph rep cInps out) : Graph rep (cInps ++ inps) out
+  | μClosed (node : Node rep inps out) (inpVals : HList rep inps) (c : rep out → Graph rep cInps cOut) : Graph rep cInps cOut
+  | μOpen (node : Node rep inps out) (c : rep out → Graph rep cInps cOut) : Graph rep (cInps ++ inps) cOut
 
 def Node.denote {inps : List Ty} {out : Ty} : Node Ty.streamDenote inps out → HList Ty.streamDenote inps → Stream' out.denote
-| id, hl => hl.get .head
-| const v, _ => .const v
-| binop op, hl => Stream'.zip op.denote (hl.get .head) (hl.get (.tail .head))
+  | id, hl => hl.get .head
+  | const v, _ => .const v
+  | binop op, hl => Stream'.zip op.denote (hl.get .head) (hl.get (.tail .head))
 
 def Graph.denote {inps : List Ty} {out : Ty} : Graph Ty.streamDenote inps out → HList Ty.streamDenote inps → Stream' out.denote
-| node n inp, _ => n.denote inp
-| μClosed n μInp f, fInp => (f (n.denote μInp)).denote fInp
-| μOpen n f, vInp =>
-  let (fInp, μNodeInp) := vInp.split
-  (f (n.denote μNodeInp)).denote fInp
+  | node n inp, _ => n.denote inp
+  | μClosed n μInp f, fInp => (f (n.denote μInp)).denote fInp
+  | μOpen n f, vInp =>
+    let (fInp, μNodeInp) := vInp.split
+    (f (n.denote μNodeInp)).denote fInp
 
 
+  ---------------------- Compiler ------------------------------
+def Imp.compileAux (cont : rep out → Graph rep cInp cOut) : Imp rep rep out → Graph rep cInp cOut
+  | const n => .μClosed (.const n) [] cont
+  | var v => cont v
+  | alloc init body => sorry
+  | read v => sorry
+  | write v e => sorry
+  | binop op arg1 arg2 => sorry
+  | seq e1 e2 => sorry
+  | for_ start stop body => sorry
+
+
+def Imp.compile (prog : Imp C M out) : Graph rep [] out :=
+
+  sorry
 
 
 ---------------------- DFG Utilities ------------------------------
