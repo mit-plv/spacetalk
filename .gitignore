@@ -1,5 +1,7 @@
-/build
-/lakefile.olean
-/lake-packages/
-.lake
-lake-manifest.json
+.CoqMakefile.d
+
+theories/*.aux
+theories/*.glob
+theories/*.vo
+theories/*.vok
+theories/*.vos
